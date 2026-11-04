@@ -930,8 +930,14 @@ ER_TINY_RENDERER 为 CPU 软件渲染，不依赖 WSLg/GPU，但高分辨率下�
 ## 10. 工程归档（拷回 Windows）
 
 ```bash
+# 目标目录不存在时：整目录拷入，xarm_lab_run 即工程根目录
 cp -r ~/xarm_lab /mnt/d/桌面/CRAIC/success/202607091551/temp_20261104_01/xarm_lab_run
+
+# 目标目录已存在时（本轮实跑即如此）：用 /. 把内容平铺进去，避免嵌套出 xarm_lab_run/xarm_lab/
+cp -r ~/xarm_lab/. /mnt/d/桌面/CRAIC/success/202607091551/temp_20261104_01/xarm_lab_run/
 ```
+
+> **v4 实跑注记（2026-11-04 18:39）**：归档前先把 `xarm_lab_run\` 内已完成使命的暂存脚本（`node*.sh`）与空 `wheels\` **移出**到工作区 `archive_node_scripts_20261104\`（未删除，保留备份），再按上述第二条命令的思路逐项拷入工程文件（额外排除 `.git` 与 `__pycache__`）。归档结果：7 个 STL、3 个 `results/` 产物、URDF / 2 个 py / README / 3 份文档，逐文件 `cmp` 与 WSL 工程一致；详见《运行日志_20261104.md》Node 7。
 
 **整工程归档，不只是结果目录**：`xarm6_reach.urdf`、`test_load.py`、`xarm6_reach_demo.py`、`meshes/`、`results/` 全部进入 Windows 侧 `d:\桌面\CRAIC\success\202607091551\temp_20261104_01\xarm_lab_run\`。课设报告与说明书引用的数字一律以 `xarm_lab_run\results\reach_results.csv` 为准；"可运行仿真"交付即此目录——在任意装有 Python 3.11 + pybullet 的 Linux 环境，把该目录内容放回 `~/xarm_lab` 即可按 §6–§8 复跑。
 
