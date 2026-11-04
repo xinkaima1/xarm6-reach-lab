@@ -17,11 +17,11 @@
 - WSL2 Ubuntu，默认用户 `slphy_kai`，项目路径 `/home/slphy_kai/xarm_lab`；
 - conda `robot` 环境：Python 3.11.18、pybullet 3.2.7（manylinux cp311 wheel）、numpy 2.4.6、imageio 2.38.1、imageio-ffmpeg 0.8.1、pillow 13.0.0；
 - `import pybullet / numpy / imageio / imageio_ffmpeg / pybullet_data` 全部通过（`IMPORTS_OK 202010061 2.4.6 2.38.1`）；
-- 工程文件就位：`xarm6_reach.urdf`、`test_load.py`、`xarm6_reach_demo.py`、`meshes/xarm6/visual/` 下 7 个 STL；`results/` 为空目录。
+- 工程文件就位：`xarm6_reach.urdf`、`test_load.py`、`xarm6_reach_demo.py`、`meshes/xarm6/visual/` 下 7 个 STL；
+- `test_load.py` 加载自检（2026-11-04 18:20:17）：`== ALL PASS ==`，6 关节限位逐项 PASS、末端 link 名 link6、零位 FK `(0.2070, -0.0000, 0.1120)` m（|Δ| 0.00 mm）、帧缓冲 307200 bytes。
 
 ### 未实测（不得当作结论引用）
 
-- `test_load.py` 加载自检结果；
 - `xarm6_reach_demo.py` 的 `--no-video` 快速验证、`--check-out-of-range` 负向验证；
 - 完整运行产物：`results/reach_results.csv`、`results/reach_demo.mp4`、`results/scene.png`；
 - 5 个目标点的 err_ik / err_track / err_com、限位判定、收敛步与渲染/总耗时。

@@ -487,8 +487,8 @@ def main() -> int:
     proj = p.computeProjectionMatrixFOV(fov=50, aspect=4 / 3, nearVal=0.01, farVal=10.0)
     img = p.getCameraImage(320, 240, viewMatrix=view, projectionMatrix=proj,
                            renderer=p.ER_TINY_RENDERER)
-    print(f"    帧缓冲 {len(img[2])} bytes（非零即渲染通路正常）")
-    ok &= len(img[2]) > 0
+    print(f"    帧缓冲 {img[2].nbytes} bytes（= 320×240×4，非零即渲染通路正常）")
+    ok &= img[2].nbytes > 0
 
     p.disconnect()
     print("== ALL PASS ==" if ok else "== FAILED（见上方 FAIL 项）==")
