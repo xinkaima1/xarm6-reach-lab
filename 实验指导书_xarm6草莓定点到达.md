@@ -797,15 +797,18 @@ def main():
         p.changeVisualShape(ball_ids[name], -1, rgbaColor=[0.10, 0.70, 0.15, 1.0])  # 已到达→绿色
 
     t_total = time.perf_counter() - t_total0
+    imageio.imwrite("results/scene.png", shoot(force=True))   # 终态场景截图（writer 仍打开，帧同步入视频）
     if writer is not None:
         writer.close()
-    imageio.imwrite("results/scene.png", shoot(force=True))   # 终态场景截图（唯一强制渲染帧）
 
     # ---- CSV ----
     fields = ["point_id", "target_x", "target_y", "target_z",
               "q1", "q2", "q3", "q4", "q5", "q6",
               "err_ik_m", "err_track_m", "err_com_m", "in_limits",
-              "converged", "converge_step", "reached", "threshold_m", "note"]
+              "converged", "converge_step", "reached", "threshold_m",
+              "render_time_s", "note"]
+    for row in rows:
+        row["render_time_s"] = round(t_render, 3)   # 全局渲染耗时（各行同值，供结果表引用）
     with open("results/reach_results.csv", "w", newline="") as f:
         wr = csv.DictWriter(f, fieldnames=fields)
         wr.writeheader()
@@ -816,7 +819,10 @@ def main():
     print(f"结果：{n_ok}/{len(rows)} 点通过（两重静态判定 + 伺服跟踪；阈值 {args.threshold * 1000:.0f} mm，"
           f"可经 --threshold 配置）")
     print(f"渲染：{n_frames} 帧 @ {w}x{h}，渲染耗时 {t_render:.1f} s；全程耗时 {t_total:.1f} s")
-    print("产物：results/reach_results.csv / reach_demo.mp4 / scene.png")
+    if args.no_video:
+        print("产物：results/reach_results.csv / results/scene.png（--no-video：未生成 MP4）")
+    else:
+        print("产物：results/reach_results.csv / results/reach_demo.mp4 / results/scene.png")
     print("（未达标点已如实标注 note，处理流程见指导书 §9.2，禁止放宽阈值或改限位）")
     p.disconnect()
     raise SystemExit(0 if n_ok == len(rows) else 1)
