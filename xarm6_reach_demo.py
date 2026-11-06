@@ -39,6 +39,17 @@ POS_GAIN, VEL_GAIN = 1.0, 1.0                      # 伺服增益（无重力设
 BAD_POINT_H = (1.20, 0.00, 0.30)                   # 负向验证：水平越界（1.2 m > 0.70 m）
 BAD_POINT_Z = (0.40, 0.00, 0.90)                   # 负向验证：z 越界（0.90 m > 0.75 m）
 
+# ---------------- 演示层抓放循环（视觉示意，不参与误差判定；来源见指导书附录 B） ----------------
+BASKET_CENTER = (0.25, -0.30, 0.10)                # 篮子中心（m），基座右前方近地面
+BASKET_DROP = (0.25, -0.30, 0.20)                  # 放果点：末端下降示意「低头放果」（位置-only IK，不约束姿态）
+BASKET_HALF = (0.09, 0.09, 0.055)                  # 篮子内腔半尺寸（m）
+PLACE_STEPS, PLACE_HOLD = 480, 120                  # 放果轨迹 2 s + 入篮保持 0.5 s（@240 Hz）
+FRUIT_SLOTS = [                                     # 5 颗果实在篮内的留存位置（m）
+    (0.21, -0.34, 0.135), (0.29, -0.34, 0.135), (0.25, -0.30, 0.135),
+    (0.21, -0.26, 0.135), (0.29, -0.26, 0.135),
+]
+FRUIT_HELD_Z = 0.03                                # 搬运时果实相对 link6 原点的下方偏移（m）
+
 
 def precheck(point, name):
     """预筛：水平半径与高度。越界即退出码 2（在 IK 前快速失败）。"""
@@ -140,6 +151,21 @@ def main():
         ball_ids[name] = p.createMultiBody(baseMass=0.0, baseVisualShapeIndex=ball_shape,
                                            basePosition=list(t))
 
+    # 篮子（纯视觉静态道具：底板 + 4 壁，无碰撞、无质量、不参与物理）
+    def add_box(half, pos, color):
+        shape = p.createVisualShape(p.GEOM_BOX, halfExtents=half, rgbaColor=color)
+        return p.createMultiBody(baseMass=0.0, baseVisualShapeIndex=shape,
+                                 basePosition=list(pos))
+
+    cx, cy, cz = BASKET_CENTER
+    hx, hy, bh = BASKET_HALF
+    wall, basket_rgba = 0.006, [0.55, 0.38, 0.20, 0.9]
+    add_box((hx, hy, wall / 2), (cx, cy, cz), basket_rgba)
+    add_box((wall / 2, hy, bh / 2), (cx - hx, cy, cz + bh / 2), basket_rgba)
+    add_box((wall / 2, hy, bh / 2), (cx + hx, cy, cz + bh / 2), basket_rgba)
+    add_box((hx, wall / 2, bh / 2), (cx, cy - hy, cz + bh / 2), basket_rgba)
+    add_box((hx, wall / 2, bh / 2), (cx, cy + hy, cz + bh / 2), basket_rgba)
+
     view = p.computeViewMatrixFromYawPitchRoll(
         cameraTargetPosition=(0.25, 0.0, 0.25), distance=1.6,
         yaw=50, pitch=-25, roll=0, upAxisIndex=2)
@@ -169,7 +195,54 @@ def main():
         n_frames += 1
         return frame
 
-    rows, q_cur = [], list(HOME)
+    def place_into_basket(name, q_start, slot_idx):
+        """演示层：果实随末端搬到篮子、末端下降放果、果实入篮留存。
+
+        不写 rows、不参与误差判定、不改阈值与限位；--no-video 下伺服与视觉搬运仍完整执行。
+        """
+        q_drop = solve_ik(robot, BASKET_DROP)
+        for j in range(6):
+            p.resetJointState(robot, j, q_drop[j])
+        drop_err = math.dist(fk_ee(robot)[0], BASKET_DROP)
+        drop_in_lim, _ = check_limits(q_drop)
+        for j in range(6):                             # 放果段起始 = 当前草莓点伺服后的姿态
+            p.resetJointState(robot, j, q_start[j])
+        dt = 1.0 / SIM_HZ
+        q_prev = list(q_start)
+        for k, s in enumerate(trap_profile(PLACE_STEPS)):
+            q_cmd = [q_start[j] + s * (q_drop[j] - q_start[j]) for j in range(6)]
+            v_cmd = [0.0] * 6 if k == 0 else [(q_cmd[j] - q_prev[j]) / dt for j in range(6)]
+            p.setJointMotorControlArray(robot, range(6), p.POSITION_CONTROL,
+                                        targetPositions=q_cmd, targetVelocities=v_cmd,
+                                        forces=FORCES, positionGains=[POS_GAIN] * 6,
+                                        velocityGains=[VEL_GAIN] * 6)
+            p.stepSimulation()
+            ee = p.getLinkState(robot, 5, computeForwardKinematics=1)[4]
+            p.resetBasePositionAndOrientation(ball_ids[name],
+                                              [ee[0], ee[1], ee[2] - FRUIT_HELD_Z],
+                                              [0.0, 0.0, 0.0, 1.0])
+            q_prev = list(q_cmd)
+            if writer is not None and k % args.every == 0:
+                shoot()
+        for k in range(PLACE_HOLD):                    # 入篮保持段：末端停在放果点，果实随末端下降
+            p.setJointMotorControlArray(robot, range(6), p.POSITION_CONTROL,
+                                        targetPositions=q_drop, targetVelocities=[0.0] * 6,
+                                        forces=FORCES, positionGains=[POS_GAIN] * 6,
+                                        velocityGains=[VEL_GAIN] * 6)
+            p.stepSimulation()
+            ee = p.getLinkState(robot, 5, computeForwardKinematics=1)[4]
+            p.resetBasePositionAndOrientation(ball_ids[name],
+                                              [ee[0], ee[1], ee[2] - FRUIT_HELD_Z],
+                                              [0.0, 0.0, 0.0, 1.0])
+            if writer is not None and k % args.every == 0:
+                shoot()
+        p.resetBasePositionAndOrientation(ball_ids[name], list(FRUIT_SLOTS[slot_idx]),
+                                          [0.0, 0.0, 0.0, 1.0])   # 果实入篮并留存
+        p.changeVisualShape(ball_ids[name], -1, rgbaColor=[0.75, 0.12, 0.12, 1.0])
+        q_end = [p.getJointState(robot, j)[0] for j in range(6)]
+        return q_end, drop_err, drop_in_lim
+
+    rows, q_cur, place_checks = [], list(HOME), []
     for i in range(6):                                 # 伺服起始 = HOME
         p.resetJointState(robot, i, HOME[i])
     t_total0 = time.perf_counter()
@@ -263,6 +336,10 @@ def main():
               f"{'到达' if reached else '未达标':6s}")
         p.changeVisualShape(ball_ids[name], -1, rgbaColor=[0.10, 0.70, 0.15, 1.0])  # 已到达→绿色
 
+        # ---- 演示层：抓 → 移到篮子 → 末端下降放果 → 前往下一点（不参与误差判定） ----
+        q_cur, drop_err, drop_ok = place_into_basket(name, q_cur, len(place_checks))
+        place_checks.append((name, drop_err * 1000, drop_ok))
+
     t_total = time.perf_counter() - t_total0
     imageio.imwrite("results/scene.png", shoot(force=True))   # 终态场景截图（writer 仍打开，帧同步入视频）
     if writer is not None:
@@ -286,6 +363,12 @@ def main():
     print(f"结果：{n_ok}/{len(rows)} 点通过（两重静态判定 + 伺服跟踪；阈值 {args.threshold * 1000:.0f} mm，"
           f"可经 --threshold 配置）")
     print(f"渲染：{n_frames} 帧 @ {w}x{h}，渲染耗时 {t_render:.1f} s；全程耗时 {t_total:.1f} s")
+    if place_checks:
+        print(f"演示层：{len(place_checks)} 段抓放（放果点 {BASKET_DROP} m，末端下降示意「低头放果」），"
+              f"放果点 IK 残差 {min(e for _, e, _ in place_checks):.2f}–"
+              f"{max(e for _, e, _ in place_checks):.2f} mm，"
+              f"限位 {sum(ok for _, _, ok in place_checks)}/{len(place_checks)} OK；"
+              f"该段为视觉示意，不参与误差判定与 CSV")
     if args.no_video:
         print("产物：results/reach_results.csv / results/scene.png（--no-video：未生成 MP4）")
     else:

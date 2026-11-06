@@ -1,10 +1,11 @@
 # 实验指导书：xArm6 草莓采摘定点到达仿真（WSL2 + PyBullet）
 
-> **版本**：v4（2026-11-04，**首次实跑回填**）：按 WSL2 实测数据回填 §8.2 / §8.3 / §13，新增 §14 实跑变更记录；同步修复 §7 内嵌脚本的 Writer 收尾顺序与产物打印口径、CSV 补 `render_time_s` 列。实跑时间 2026-11-04 18:18–18:28，环境 / 产物 / commit 见 §14.1。
+> **版本**：**v5**（2026-11-06，演示层抓放循环 + 全量重跑回填）：应课设「采摘草莓」叙事要求，§0 范围正式纳入「到达草莓点 → 末端下降放果 → 果实视觉入篮 → 前往下一点」的演示层循环；§7 内嵌脚本与工程脚本同步更新；§8.2 / §8.3 / §13 按 2026-11-06 全量重跑真实数字回填（976 帧 / 134.2 s），新增 §14.3 变更记录与附录 B 新参数来源。实跑时间 2026-11-06 17:59–18:34，环境 / 产物 / commit 见 §14.3。
+> **v4**（2026-11-04，**首次实跑回填**）：按 WSL2 实测数据回填 §8.2 / §8.3 / §13，新增 §14 实跑变更记录；同步修复 §7 内嵌脚本的 Writer 收尾顺序与产物打印口径、CSV 补 `render_time_s` 列。实跑时间 2026-11-04 18:18–18:28，环境 / 产物 / commit 见 §14.1。
 > **v3**（2026-11-04，第三轮修订：伺服动力学改**无重力设定** + positionGain 1.0 + 轨迹段速度前馈（修复重力下 kp=0.1 稳态误差不可达的伺服瘫塌阻断）；`--no-video` 真跳过常规帧渲染；增益 kwargs 改复数形式（positionGains/velocityGains）；§2.3 累计旋转修正；v3 计划文档答辩话术源对齐 PyBullet 口径）
 > **v2**（2026-11-04）：按外部审查 8 点质疑修订（手写 URDF / IK 全参数可复现 / 误差口径写死 / 分关节力矩 / wheel 正常路径 / 阈值可配与未收敛交付分支 / 清除双引擎叙事）；中期追加主流程伺服化、点位回退 plan 原值、两重判定口径、整工程归档
 > **执行环境**：Windows + WSL2 Ubuntu，项目驻 `~/xarm_lab`
-> **阅读约定**：所有命令可直接复制粘贴执行。v4 已完成首次实跑，§8.2 / §8.3 / §13 的数字均来自 2026-11-04 真实运行，数据源为 `results/reach_results.csv` 与《运行日志_20261104.md》；仍标注「未执行」的项目（降级渲染分支、换阈值复跑、全新机器从零环境复跑、MP4 画面逐帧判读）不得当作结论引用。
+> **阅读约定**：所有命令可直接复制粘贴执行。**v5 为当前唯一执行基线**，§8.2 / §8.3 / §13 的数字均来自 2026-11-06 全量重跑，数据源为 `results/reach_results.csv` 与《运行日志_20261104.md》11-06 章节；v4 的 11-04 数据保留于 §14.1 与历史 commit，不再作为当前结论。仍标注「未执行」的项目（降级渲染分支、换阈值复跑、全新机器从零环境复跑、MP4 全量逐帧判读）不得当作结论引用。
 
 ---
 
@@ -12,12 +13,13 @@
 
 本实验为课设《设施草莓采摘仿生机械臂控制系统设计》的**定位精度仿真验证部分**，范围锁定如下：
 
-1. **纯仿真**：不制实物、不建模末端执行器（夹爪按机械图纸设计，不纳入本轮运动学验证）；
-2. **不含**夹爪开合、采摘接触、状态机、视觉/CLIP、力控；
-3. 只验证：**6 轴 xArm6 的末端 link 依次到达 5 个写死的空间目标点**；
+1. **纯仿真**：不制实物、**不建模末端执行器**（夹爪按机械图纸设计，不纳入本轮运动学验证）；
+2. **不含**夹爪开合、采摘接触力学、状态机、视觉/CLIP、力控；
+3. 精度验证对象只有一件事：**6 轴 xArm6 的末端 link 依次到达 5 个写死的空间目标点**；
 4. 方法：PyBullet + 内置 `calculateInverseKinematics` **位置-only IK**（不约束姿态）；
 5. 引擎口径全项目统一为 **PyBullet**，文档、说明书、答辩话术不出现第二引擎叙事；
-6. 仿真动力学为**无重力设定**（`setGravity(0,0,0)`）+ 轨迹段速度前馈：验证的是轨迹规划与位置伺服的**指令跟踪与定位收敛**；重力负载前馈补偿（逆动力学）属实物化后续工作，不在本轮范围。本条为答辩与说明书的统一口径，主动声明而非被问出来。
+6. 仿真动力学为**无重力设定**（`setGravity(0,0,0)`）+ 轨迹段速度前馈：验证的是轨迹规划与位置伺服的**指令跟踪与定位收敛**；重力负载前馈补偿（逆动力学）属实物化后续工作，不在本轮范围。本条为答辩与说明书的统一口径，主动声明而非被问出来；
+7. **演示层抓放循环（v5 正式纳入范围）**：每个草莓点到位判定完成后，追加一段「移到篮子放果点 → 末端下降（示意低头放果）→ 果实视觉搬入篮中并留存 → 前往下一点」的轨迹，形成 抓-放-抓 的采摘观感。该层是**纯视觉示意**：篮子与果实均为静态视觉体，果实位置由脚本直接搬运，**无夹爪、无接触/约束、无夹持力、不约束末端姿态**；放果点不是第 6 个验收目标，不写入 CSV、不参与 §1.3 的两重静态判定与伺服跟踪判定，也不代表抓取成功率或果实识别能力。答辩必须主动说明这一边界。
 
 ---
 
@@ -25,7 +27,7 @@
 
 ### 1.1 目标
 
-机械臂末端 link（**link6**）依次到达 5 个预先写死的草莓空间目标点。控制结构为两层：**关节空间梯形轨迹规划**（生成 240 Hz 目标轨迹）+ **关节位置伺服**（`POSITION_CONTROL` 带分关节力矩上限与速度前馈跟踪轨迹；动力学含 URDF 惯量与关节阻尼，**无重力设定**，见 §0 第 6 条）。逐点记录两个误差：IK 数值残差（静态）与伺服跟踪误差（无重力设定下控制回路的末端定位精度），导出演示动画。
+机械臂末端 link（**link6**）依次到达 5 个预先写死的草莓空间目标点。控制结构为两层：**关节空间梯形轨迹规划**（生成 240 Hz 目标轨迹）+ **关节位置伺服**（`POSITION_CONTROL` 带分关节力矩上限与速度前馈跟踪轨迹；动力学含 URDF 惯量与关节阻尼，**无重力设定**，见 §0 第 6 条）。逐点记录两个误差：IK 数值残差（静态）与伺服跟踪误差（无重力设定下控制回路的末端定位精度）。动画另含 §0 第 7 条的**演示层抓放循环**，用于呈现采摘流程，但不参与上述任何测量与判定。
 
 ### 1.2 误差定义（原理、脚本、结果表、答辩四处统一，不得混用）
 
@@ -49,11 +51,12 @@
 
 ### 1.4 验收产物
 
-1. `results/reach_results.csv`：双误差列（`err_ik` 静态残差 / `err_track` 伺服跟踪误差）+ COM 备查列 + 限位判定 + 伺服收敛步数 + 渲染耗时（`render_time_s` 为全局渲染耗时，各行同值；v4 实跑 = 82.501 s）；
-2. `results/reach_demo.mp4`：机械臂依次到达 5 个红色草莓点的动画；
-3. `results/scene.png`：场景截图；
-4. 控制台汇总表；
-5. 未收敛/超阈值的点**如实标注并保留在结果表中**（这本身是合法的实验结论），按 §9.2 规则化调整后重跑并登记。
+1. `results/reach_results.csv`：双误差列（`err_ik` 静态残差 / `err_track` 伺服跟踪误差）+ COM 备查列 + 限位判定 + 伺服收敛步数 + 渲染耗时（`render_time_s` 为全局渲染耗时，各行同值；**v5 实跑 = 134.205 s**）；仍为 5 行、原 19 字段，演示层不写入；
+2. `results/reach_demo.mp4`：机械臂依次到达 5 个草莓点、并在每点后完成「抓 → 放入篮子 → 前往下一点」演示段的动画（**v5 实跑 976 帧 / 32.53 s**）；
+3. `results/scene.png`：终态场景截图（篮中 5 颗果实可见）；
+4. `results/reach_demo.gif` / `results/reach_keyframes.png`：由同一次运行派生的答辩素材（循环动图 / 关键帧拼图）；
+5. 控制台汇总表（含演示层抓放段计数与边界声明）；
+6. 未收敛/超阈值的点**如实标注并保留在结果表中**（这本身是合法的实验结论），按 §9.2 规则化调整后重跑并登记。
 
 ---
 
@@ -573,6 +576,17 @@ POS_GAIN, VEL_GAIN = 1.0, 1.0                      # 伺服增益（无重力设
 BAD_POINT_H = (1.20, 0.00, 0.30)                   # 负向验证：水平越界（1.2 m > 0.70 m）
 BAD_POINT_Z = (0.40, 0.00, 0.90)                   # 负向验证：z 越界（0.90 m > 0.75 m）
 
+# ---------------- 演示层抓放循环（视觉示意，不参与误差判定；来源见指导书附录 B） ----------------
+BASKET_CENTER = (0.25, -0.30, 0.10)                # 篮子中心（m），基座右前方近地面
+BASKET_DROP = (0.25, -0.30, 0.20)                  # 放果点：末端下降示意「低头放果」（位置-only IK，不约束姿态）
+BASKET_HALF = (0.09, 0.09, 0.055)                  # 篮子内腔半尺寸（m）
+PLACE_STEPS, PLACE_HOLD = 480, 120                  # 放果轨迹 2 s + 入篮保持 0.5 s（@240 Hz）
+FRUIT_SLOTS = [                                     # 5 颗果实在篮内的留存位置（m）
+    (0.21, -0.34, 0.135), (0.29, -0.34, 0.135), (0.25, -0.30, 0.135),
+    (0.21, -0.26, 0.135), (0.29, -0.26, 0.135),
+]
+FRUIT_HELD_Z = 0.03                                # 搬运时果实相对 link6 原点的下方偏移（m）
+
 
 def precheck(point, name):
     """预筛：水平半径与高度。越界即退出码 2（在 IK 前快速失败）。"""
@@ -674,6 +688,21 @@ def main():
         ball_ids[name] = p.createMultiBody(baseMass=0.0, baseVisualShapeIndex=ball_shape,
                                            basePosition=list(t))
 
+    # 篮子（纯视觉静态道具：底板 + 4 壁，无碰撞、无质量、不参与物理）
+    def add_box(half, pos, color):
+        shape = p.createVisualShape(p.GEOM_BOX, halfExtents=half, rgbaColor=color)
+        return p.createMultiBody(baseMass=0.0, baseVisualShapeIndex=shape,
+                                 basePosition=list(pos))
+
+    cx, cy, cz = BASKET_CENTER
+    hx, hy, bh = BASKET_HALF
+    wall, basket_rgba = 0.006, [0.55, 0.38, 0.20, 0.9]
+    add_box((hx, hy, wall / 2), (cx, cy, cz), basket_rgba)
+    add_box((wall / 2, hy, bh / 2), (cx - hx, cy, cz + bh / 2), basket_rgba)
+    add_box((wall / 2, hy, bh / 2), (cx + hx, cy, cz + bh / 2), basket_rgba)
+    add_box((hx, wall / 2, bh / 2), (cx, cy - hy, cz + bh / 2), basket_rgba)
+    add_box((hx, wall / 2, bh / 2), (cx, cy + hy, cz + bh / 2), basket_rgba)
+
     view = p.computeViewMatrixFromYawPitchRoll(
         cameraTargetPosition=(0.25, 0.0, 0.25), distance=1.6,
         yaw=50, pitch=-25, roll=0, upAxisIndex=2)
@@ -703,7 +732,54 @@ def main():
         n_frames += 1
         return frame
 
-    rows, q_cur = [], list(HOME)
+    def place_into_basket(name, q_start, slot_idx):
+        """演示层：果实随末端搬到篮子、末端下降放果、果实入篮留存。
+
+        不写 rows、不参与误差判定、不改阈值与限位；--no-video 下伺服与视觉搬运仍完整执行。
+        """
+        q_drop = solve_ik(robot, BASKET_DROP)
+        for j in range(6):
+            p.resetJointState(robot, j, q_drop[j])
+        drop_err = math.dist(fk_ee(robot)[0], BASKET_DROP)
+        drop_in_lim, _ = check_limits(q_drop)
+        for j in range(6):                             # 放果段起始 = 当前草莓点伺服后的姿态
+            p.resetJointState(robot, j, q_start[j])
+        dt = 1.0 / SIM_HZ
+        q_prev = list(q_start)
+        for k, s in enumerate(trap_profile(PLACE_STEPS)):
+            q_cmd = [q_start[j] + s * (q_drop[j] - q_start[j]) for j in range(6)]
+            v_cmd = [0.0] * 6 if k == 0 else [(q_cmd[j] - q_prev[j]) / dt for j in range(6)]
+            p.setJointMotorControlArray(robot, range(6), p.POSITION_CONTROL,
+                                        targetPositions=q_cmd, targetVelocities=v_cmd,
+                                        forces=FORCES, positionGains=[POS_GAIN] * 6,
+                                        velocityGains=[VEL_GAIN] * 6)
+            p.stepSimulation()
+            ee = p.getLinkState(robot, 5, computeForwardKinematics=1)[4]
+            p.resetBasePositionAndOrientation(ball_ids[name],
+                                              [ee[0], ee[1], ee[2] - FRUIT_HELD_Z],
+                                              [0.0, 0.0, 0.0, 1.0])
+            q_prev = list(q_cmd)
+            if writer is not None and k % args.every == 0:
+                shoot()
+        for k in range(PLACE_HOLD):                    # 入篮保持段：末端停在放果点，果实随末端下降
+            p.setJointMotorControlArray(robot, range(6), p.POSITION_CONTROL,
+                                        targetPositions=q_drop, targetVelocities=[0.0] * 6,
+                                        forces=FORCES, positionGains=[POS_GAIN] * 6,
+                                        velocityGains=[VEL_GAIN] * 6)
+            p.stepSimulation()
+            ee = p.getLinkState(robot, 5, computeForwardKinematics=1)[4]
+            p.resetBasePositionAndOrientation(ball_ids[name],
+                                              [ee[0], ee[1], ee[2] - FRUIT_HELD_Z],
+                                              [0.0, 0.0, 0.0, 1.0])
+            if writer is not None and k % args.every == 0:
+                shoot()
+        p.resetBasePositionAndOrientation(ball_ids[name], list(FRUIT_SLOTS[slot_idx]),
+                                          [0.0, 0.0, 0.0, 1.0])   # 果实入篮并留存
+        p.changeVisualShape(ball_ids[name], -1, rgbaColor=[0.75, 0.12, 0.12, 1.0])
+        q_end = [p.getJointState(robot, j)[0] for j in range(6)]
+        return q_end, drop_err, drop_in_lim
+
+    rows, q_cur, place_checks = [], list(HOME), []
     for i in range(6):                                 # 伺服起始 = HOME
         p.resetJointState(robot, i, HOME[i])
     t_total0 = time.perf_counter()
@@ -797,6 +873,10 @@ def main():
               f"{'到达' if reached else '未达标':6s}")
         p.changeVisualShape(ball_ids[name], -1, rgbaColor=[0.10, 0.70, 0.15, 1.0])  # 已到达→绿色
 
+        # ---- 演示层：抓 → 移到篮子 → 末端下降放果 → 前往下一点（不参与误差判定） ----
+        q_cur, drop_err, drop_ok = place_into_basket(name, q_cur, len(place_checks))
+        place_checks.append((name, drop_err * 1000, drop_ok))
+
     t_total = time.perf_counter() - t_total0
     imageio.imwrite("results/scene.png", shoot(force=True))   # 终态场景截图（writer 仍打开，帧同步入视频）
     if writer is not None:
@@ -820,6 +900,12 @@ def main():
     print(f"结果：{n_ok}/{len(rows)} 点通过（两重静态判定 + 伺服跟踪；阈值 {args.threshold * 1000:.0f} mm，"
           f"可经 --threshold 配置）")
     print(f"渲染：{n_frames} 帧 @ {w}x{h}，渲染耗时 {t_render:.1f} s；全程耗时 {t_total:.1f} s")
+    if place_checks:
+        print(f"演示层：{len(place_checks)} 段抓放（放果点 {BASKET_DROP} m，末端下降示意「低头放果」），"
+              f"放果点 IK 残差 {min(e for _, e, _ in place_checks):.2f}–"
+              f"{max(e for _, e, _ in place_checks):.2f} mm，"
+              f"限位 {sum(ok for _, _, ok in place_checks)}/{len(place_checks)} OK；"
+              f"该段为视觉示意，不参与误差判定与 CSV")
     if args.no_video:
         print("产物：results/reach_results.csv / results/scene.png（--no-video：未生成 MP4）")
     else:
@@ -866,15 +952,15 @@ python xarm6_reach_demo.py --threshold 0.003   # 换阈值复跑（阈值可配�
 
 ### 8.2 渲染预算与降级分支
 
-| 模式 | 帧数估算 | 实测耗时（2026-11-04） |
+| 模式 | 帧数估算 | 实测耗时（2026-11-06，v5） |
 |------|----------|------------------------|
-| 默认 960×720 / 每 8 步 | ~600 帧（5 点 × 120 帧：轨迹段 60 + 保持段 60） | **601 帧，渲染 82.5 s，全程 82.5 s** |
-| 降级 640×480 / 每 16 步 | ~300 帧 | **未执行**（默认模式 82.5 s < 5 分钟预算，未触发降级分支） |
-| `--no-video` | 1 帧（截图） | **0.1 s**（渲染 1 帧 0.1 s / 全程 0.1 s，伺服动力学仍完整执行） |
+| 默认 960×720 / 每 8 步 | 每点到位段约 120 帧 + 演示层抓放段约 75 帧，共 ~975 帧 | **976 帧，渲染 134.2 s，全程 134.3 s** |
+| 降级 640×480 / 每 16 步 | 约 ~490 帧 | **未执行**（默认模式 134.2 s < 5 分钟预算，未触发降级分支） |
+| `--no-video` | 1 帧（截图） | **0.1 s**（渲染 1 帧 0.1 s / 全程 0.1 s；伺服、抓放段与果实搬运仍完整执行） |
 
-ER_TINY_RENDERER 为 CPU 软件渲染，不依赖 WSLg/GPU，但高分辨率下耗时不可忽略。**渲染耗时由脚本自动打印并应在结果表登记**。若默认模式渲染超过 5 分钟，属正常范围；超过 15 分钟改用降级分支重跑。本次实测 82.5 s 落在预算内，故降级分支未运行；该分支的耗时不作任何结论引用。
+ER_TINY_RENDERER 为 CPU 软件渲染，不依赖 WSLg/GPU，但高分辨率下耗时不可忽略。**渲染耗时由脚本自动打印并应在结果表登记**。若默认模式渲染超过 5 分钟，属正常范围；超过 15 分钟改用降级分支重跑。v5 实测 134.2 s 落在预算内（v4 为 601 帧 / 82.5 s，帧数增加来自 5 段抓放演示），故降级分支未运行；该分支的耗时不作任何结论引用。
 
-### 8.3 结果记录表（2026-11-04 实跑回填；数据源：控制台汇总表 + `results/reach_results.csv`）
+### 8.3 结果记录表（2026-11-06 全量重跑回填；数据源：控制台汇总表 + `results/reach_results.csv`）
 
 | 点 | 目标 (m) | IK 残差 (mm) | 伺服误差 (mm) | COM (mm) | 限位 | 收敛步 | 结论 | 备注 |
 |----|----------|--------------|---------------|----------|------|--------|------|------|
@@ -884,13 +970,13 @@ ER_TINY_RENDERER 为 CPU 软件渲染，不依赖 WSLg/GPU，但高分辨率下�
 | P4 | (0.35, 0.12, 0.50) | 0.48 | 0.48 | 12.65 | OK | 59 | 到达 | |
 | P5 | (0.35, -0.12, 0.50) | 0.48 | 0.48 | 12.99 | OK | 59 | 到达 | |
 
-汇总信息：阈值 = **5 mm**（`--threshold 0.005`，未放宽）；渲染耗时 = **82.5 s**（601 帧 @ 960×720）；总耗时 = **82.5 s**（墙钟 18:27:06 → 18:28:29，83 s）；pybullet 版本 = **3.2.7**（build time Jan 29 2025）。CSV 的 `render_time_s` = 82.501（全局渲染耗时，各行同值）。脚本的「渲染耗时」与「全程耗时」保留 1 位小数后相同，因 CPU 软渲染占绝大部分、伺服步进相对可忽略。
+汇总信息：阈值 = **5 mm**（`--threshold 0.005`，未放宽）；渲染耗时 = **134.2 s**（976 帧 @ 960×720）；总耗时 = **134.3 s**（墙钟 17:59:38 → 18:01:53，135 s）；pybullet 版本 = **3.2.7**（build time Jan 29 2025）。CSV 的 `render_time_s` = 134.205（全局渲染耗时，各行同值）。演示层 5 段抓放：放果点 IK 残差 0.97 mm、限位 5/5 OK，该段不写入 CSV。
 
 **COM 备查列的末位口径**：表内 COM 数值取控制台汇总表打印值；P1 控制台为 **13.13 mm**，而 CSV 的 `err_com_m=0.013135`（×1000 后按 2 位舍入为 **13.14 mm**），0.01 mm 差异来自 CSV 六位小数（m）存储。COM 仅备查、不参与任何判定；主口径 `err_ik` / `err_track` 及限位、收敛步在控制台与 CSV 两处逐点一致。
 
-补充实测：`--no-video` 快速模式逐点数值与完整运行完全一致；`--check-out-of-range` 退出码 2；MP4 可完整解码 601 帧 / 30 fps / 20.03 s（画面内容**未**逐帧人工判读）；降级渲染分支、`--threshold` 换阈值复跑、全新机器从零环境复跑均**未执行**。
+补充实测：`--no-video` 快速模式逐点数值与完整运行完全一致；`--check-out-of-range` 退出码 2；MP4 可完整解码 **976 帧 / 30 fps / 32.53 s**；画面**抽样判读 6 帧**（第 0/119/194/389/779/975 帧）：篮子与果实入篮清晰可见，终态篮中 5 颗，非黑屏（**全量逐帧判读仍未执行**）；降级渲染分支、`--threshold` 换阈值复跑、全新机器从零环境复跑均**未执行**。
 
-**实测结论**：5 点全部满足两重静态判定 + 伺服跟踪判据，逐点伺服跟踪误差 **0.29–0.88 mm < 5 mm**（实测值见表），`converged=1`、`in_limits=1`、收敛步全为 59；未发生任何目标点坐标或伺服增益调整（§9.2 决策树未触发）。本结论只覆盖**无重力设定**下的轨迹跟踪与定位收敛，不代表带重力实物化性能，也不代表抓取成功率。
+**实测结论**：5 点全部满足两重静态判定 + 伺服跟踪判据，逐点伺服跟踪误差 **0.29–0.88 mm < 5 mm**（实测值见表），`converged=1`、`in_limits=1`、收敛步全为 59；未发生任何目标点坐标或伺服增益调整（§9.2 决策树未触发）。**与 v4（11-04）逐点完全一致**：抓放演示段改变了各点伺服起始位姿，但保持段 480 步足以收敛到同一 IK 解，故 `err_ik` / `err_track` / `err_com` / q1–q6 / 收敛步均无变化，唯一变化是帧数与渲染耗时（601 → 976 帧，82.501 → 134.205 s）。本结论只覆盖**无重力设定**下的轨迹跟踪与定位收敛，不代表带重力实物化性能，也不代表抓取成功率；演示层抓放循环仅为流程可视化（§0 第 7 条）。
 
 **结论书写规则**：仅当 5 点实测全部"到达"后，方可在结论区写"逐点误差 < 5 mm（实测值见表）"；存在未达标点时，结论如实写"Px 未收敛/超阈值，已按 §9.2 调整/记录"。**禁止先写结论再凑数。**
 
@@ -981,23 +1067,27 @@ cp -r ~/xarm_lab/. /mnt/d/桌面/CRAIC/success/202607091551/temp_20261104_01/xar
    关节空间梯形轨迹（加速 25% / 匀速 50% / 减速 25%）作为**目标轨迹**，由**位置伺服**（POSITION_CONTROL，分关节力矩上限 + 速度前馈）在 240 Hz 动力学仿真（URDF 惯量/阻尼，无重力设定）中跟踪执行，30 fps 导出；伺服增益调整指引见附录 C。
 8. **为什么用 PyBullet？**
    内置带限位的逆运动学求解器，适合快速验证定位链路；模型与参数全部来自 xArm 官方开源仓库（来源对照见附录 B）。
+9. **动画里「摘草莓、放进篮子」是真的抓取吗？**
+   **不是**，这是 §0 第 7 条的演示层抓放循环：果实球是位置标记，脚本直接把它的视觉位置搬到篮中；末端下降到放果点表达「低头」，因位置-only IK 不约束姿态，末端姿态并未真实改变。没有夹爪、没有接触检测、没有夹持力或接触力学，也不做果实识别。5 个草莓点的到位误差仍按 §1.3 判定，演示段不产生误差数据、不写入 CSV；动画证明的是「流程可达 + 定位精度」，不是抓取成功率。
 
 ---
 
-## 13. 实跑回填清单（v4 状态）
+## 13. 实跑回填清单（v5 状态，2026-11-06）
 
 - [x] pybullet 实际安装版本与安装耗时（步骤三）：3.2.7 / cp311 wheel 103.2 MB / 下载 6 分 31 秒（见 §3 步骤三、运行日志 Node 1）
-- [x] 5 点 err_ik / err_track / err_com / 限位判定 / 收敛步 / 结论（§8.3 表）：已按 `results/reach_results.csv` 回填
-- [x] 渲染耗时：默认模式 601 帧 / 82.5 s（§8.2）；`--no-video` 0.1 s；降级模式**未执行**（未触发）
-- [x] 总耗时：82.5 s（墙钟 18:27:06 → 18:28:29）
+- [x] 5 点 err_ik / err_track / err_com / 限位判定 / 收敛步 / 结论（§8.3 表）：已按 11-06 全量重跑的 `results/reach_results.csv` 回填，逐点与 v4 一致
+- [x] 渲染耗时：默认模式 **976 帧 / 134.2 s**（§8.2）；`--no-video` 0.1 s；降级模式**未执行**（未触发）
+- [x] 总耗时：**134.3 s**（墙钟 17:59:38 → 18:01:53）
+- [x] 演示层抓放：5 段，放果点 IK 残差 0.97 mm、限位 5/5 OK，篮子与果实入篮已抽样判读可见（§14.3）
 - [x] 目标点变更登记（§9.2 表）：无变更，5 点一次通过
-- [x] 结论区文字（按 §8.3 结论书写规则）：已写「逐点误差 0.29–0.88 mm < 5 mm」，附无重力设定口径限定
+- [x] 结论区文字（按 §8.3 结论书写规则）：已写「逐点误差 0.29–0.88 mm < 5 mm」，附无重力设定与演示层边界限定
+- [x] 答辩素材：MP4 / GIF / 关键帧拼图 / 终态截图均由 11-06 同一次运行派生
 - [ ] 零探索验证：全新机器按本文档从零环境完整复跑（**未执行**，本轮为既有 WSL 环境实跑）
-- [ ] 降级渲染分支 / `--threshold` 换阈值复跑 / MP4 画面逐帧人工判读（**未执行**，不作结论引用）
+- [ ] 降级渲染分支 / `--threshold` 换阈值复跑 / MP4 画面**全量逐帧**人工判读（已抽样 6 帧，非全量，不作逐帧正确性结论）
 
 ---
 
-## 14. 实跑变更记录（v4，2026-11-04）
+## 14. 实跑变更记录（v4 基线 + v5 扩展）
 
 ### 14.1 实跑基线
 
@@ -1023,6 +1113,31 @@ cp -r ~/xarm_lab/. /mnt/d/桌面/CRAIC/success/202607091551/temp_20261104_01/xar
 
 **同步范围**：#1–#4 的代码改动均在 WSL 工程、Windows 暂存区母本、本文档 §6 / §7 内嵌脚本三处同步（逐字比对一致），`py_compile` 通过；处理过程见《运行日志_20261104.md》Node 2 / Node 4。**失败记录保留**：Node4 首跑的 traceback 与 `FULL_EXIT=1` 全文记于运行日志，未从任何文档中删除。
 
+### 14.3 v5 演示层抓放循环与全量重跑（2026-11-06）
+
+| 项 | 值 |
+|---|---|
+| 实跑时间 | 完整运行 17:59:38 → 18:01:53（+08:00）；素材派生 18:34 |
+| 环境 | 同 §14.1（WSL2 Ubuntu 26.04.4 LTS / conda `robot` / Python 3.11.18 / pybullet 3.2.7） |
+| 命令 | `python xarm6_reach_demo.py --no-video`；`--check-out-of-range`；`python xarm6_reach_demo.py` |
+| 产物 | CSV 749 B（5 行 19 字段）、MP4 1.4 MB（976 帧 / 32.53 s）、scene.png 28 KB、GIF 195 帧 / 337 KB、关键帧拼图 193 KB |
+| 旧值 → 新值 | 601 帧 / 82.5 s → **976 帧 / 134.2 s**（渲染）；`render_time_s` 82.501 → **134.205**；5 点误差、q1–q6、收敛步**逐点完全一致** |
+| 未执行 | 降级渲染分支、换阈值复跑、全新机器零探索复跑、MP4 全量逐帧判读（已抽样 6 帧） |
+
+**变更登记（旧值 → 新值 → 原因 → 重跑结果）**
+
+| # | 类别 | 旧值 | 新值 / 处理 | 原因 | 重跑结果 |
+|---|------|------|-------------|------|----------|
+| 1 | 范围红线 | §0 只写「依次到达 5 点」，不含采摘流程 | §0 新增第 7 条：正式纳入演示层抓放循环，主动声明无夹爪 / 接触 / 力 / 姿态约束 | 课设题目为采摘机械臂控制系统设计，动画需体现逐颗采摘 | 文档与代码同步；5 点判据、阈值、限位、TARGETS 全部未改 |
+| 2 | 脚本 | 每点结束直接进入下一点 | 每点 `rows.append` 后插入独立 `place_into_basket()`：放果点 IK + 同套梯形轨迹 / 位置伺服 + 果实视觉搬运入篮 | 演示层隔离：不写 rows、不改 fields、不参与判定 | `--no-video` 与完整运行均 5/5 通过、CSV 仍 5 行；放果点 IK 残差 0.97 mm、限位 5/5 OK |
+| 3 | 场景 | 地面 + 栽培架 + 5 个球 | 新增棕色开口篮（5 个静态视觉体）+ 5 个篮内果实槽位 | 让「放入篮子」在画面中可见 | 抽样判读 6 帧：frame 194 / 389 / 779 篮中分别 1 / 2 / 4 颗，终态 5 颗全在篮中 |
+| 4 | 起始位姿 | 下一点伺服起始 = 上一草莓点姿态 | 下一点伺服起始 = 放果段结束姿态 | 流程连续性 | 原预判「err_track / converge_step 可能变化」；**实测逐点数值与 v4 完全一致**（含 converge_step=59），如实记为「一致」，未臆造差异 |
+| 5 | 素材 | 601 帧 MP4 / 120 帧 GIF / 旧拼图 | 976 帧 MP4 / 195 帧 GIF / 覆盖抓放时刻的新拼图 | 素材须与改后运行同源 | 画面抽样判读通过，GIF 首 / 中 / 末帧非纯色 |
+
+**未改动项（红线核对）**：`--threshold` 仍 0.005 m；URDF 关节限位、HOME / restPoses、TARGETS（P1–P5）、FORCES、POS_GAIN / VEL_GAIN、`setGravity(0,0,0)`、STEADY_N、SERVO_MAX_STEPS、IK_MAX_ITER 全部未改；未删点、未隐藏失败记录；§9.2 决策树未触发，无坐标 / 增益变更登记；`writer.close()` 收尾顺序保持不变。
+
+**三处同步**：WSL 工程 / Windows 归档 `xarm_lab_run` / 本文档 §6 §7 内嵌脚本逐字一致（含本次修正的 `test_load.py` 归档母本），`py_compile` 通过。
+
 ---
 
 ## 附录 B：参数来源对照表（每个数字可复核）
@@ -1042,6 +1157,7 @@ cp -r ~/xarm_lab/. /mnt/d/桌面/CRAIC/success/202607091551/temp_20261104_01/xar
 | 伺服参数 | STEADY_N=60（连续 0.25 s 达标判收敛）、SERVO_MAX_STEPS=3000（超时兜底 12.5 s）、POS_GAIN=1.0 / VEL_GAIN=1.0 + 轨迹段速度前馈 targetVelocities（无重力设定下的验证基线：无扰动时 PD 稳态误差→0，kp=1.0 收敛时间常数约 1–3 s，12.5 s 兜底预算充足）、梯形轨迹 480 步 @240 Hz | 本实验定义。依据：PyBullet POSITION_CONTROL 力矩 = kp·Δq + kd·(v_cmd−v)，带重力时稳态需 Δq=τ_g/kp（joint2 重力矩 ~12.7 N·m，kp=0.1 时需 127 rad，物理不可达），纯位置伺服不引入重力前馈时必须关重力 |
 | 预筛半径/高度 | 0.70 m / [0.10, 0.75] m | 本实验定义（依据 xArm6 名义臂展 ~0.7 m） |
 | pybullet wheel 可用性 | 3.2.6/3.2.7 含 cp311-manylinux wheel，无 cp312+ | PyPI（tuna 镜像）2026-11-04 实测 |
+| 演示层抓放参数（v5 新增，见 §7 常量区） | `BASKET_CENTER=(0.25,-0.30,0.10)` m、`BASKET_DROP=(0.25,-0.30,0.20)` m、`BASKET_HALF=(0.09,0.09,0.055)` m、`PLACE_STEPS=480 / PLACE_HOLD=120`、`FRUIT_SLOTS` 5 个篮内槽位、`FRUIT_HELD_Z=0.03` m | 本实验定义（演示层）；放果点经 PyBullet 位置-only IK 预核可达（残差 0.97 mm、6 关节在限位内），**不参与 §1.3 判定、不写入 CSV** |
 
 ---
 
