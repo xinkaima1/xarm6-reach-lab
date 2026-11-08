@@ -50,17 +50,29 @@ FRUIT_SLOTS = [                                     # 5 颗果实在篮内的留
 ]
 FRUIT_HELD_Z = 0.03                                # 搬运时果实相对 link6 原点的下方偏移（m）
 
-# ---- 演示层仿生触手（L1 视觉合拢示意，不参与误差判定与物理） ----
+# ---- 演示层仿生触手：卷曲 -> 反向展开 -> 缠绕包覆（L1 纯视觉，不参与误差判定与物理） ----
 # 参数按 SpiRobs 官方「数根触手抓鸡蛋」演示的比例取一组示意几何值；
-# **非中科大实物参数、非论文测量值**，仅用于动画表达「夹住红球」，来源见指导书附录 B。
+# **非中科大实物参数、非论文测量值**；rho = a*exp(b*theta) 仅用于示意卷曲形态，来源见附录 B。
 TENTACLE_COUNT = 3                                 # 触手根数（示意）
-TENTACLE_SEGS = 6                                  # 每根离散段数（对数螺旋离散示意）
-TENTACLE_LEN = 0.13                                # 触手展开长度 (m，示意)
+TENTACLE_SEGS = 6                                  # 每根离散段数（示意）
+TENTACLE_LEN = 0.13                                # 展开态触手长度 (m，示意)
 TENTACLE_RADIUS = 0.008                            # 段球半径 (m，示意)
 TENTACLE_ROOT_R = 0.022                            # 根部离轴半径 (m，示意)
-TENTACLE_OPEN_R = 0.065                            # 张开时中段离轴半径 (m，示意)
-TENTACLE_GRIP_R = 0.034                            # 合拢时包覆半径 (m，略大于果实半径 0.025)
+TENTACLE_OPEN_R = 0.065                            # 展开态中段离轴半径 (m，示意)
 TENTACLE_COLOR = [0.90, 0.62, 0.20, 1.0]           # 触手颜色（示意）
+# 卷曲态：对数螺旋 rho = SPIRAL_A*exp(SPIRAL_B*theta)，盘在末端后方 (+z)，不遮挡果实
+SPIRAL_A = 0.010                                   # 螺旋起始半径 (m，示意)
+SPIRAL_B = 0.22                                    # 螺旋增长系数 (示意)
+SPIRAL_THETA_MAX = 2.4 * math.pi                   # 卷曲总转角 (rad，示意，约 1.2 圈)
+COIL_BACK_Z = 0.050                                # 卷曲态向末端后方抬升 (m，示意)
+# 缠绕态：沿果实球面（球心在 ee 下方 FRUIT_HELD_Z）自球顶绕到球底
+WRAP_R = 0.033                                     # 包覆球面半径 (m，略大于果实半径 0.025)
+WRAP_PHI0, WRAP_PHI1 = 0.18 * math.pi, 0.96 * math.pi   # 球顶到球底极角范围 (示意)
+WRAP_TWIST = 0.55 * math.pi                        # 缠绕时绕球轴的附加转角 (示意)
+# 阶段时间线：到位段后段展开，保持段前段缠绕，入篮段后段释放回卷
+EXTEND_START = 0.75                                # 到位轨迹段中开始反向展开的归一化时刻
+WRAP_END = 0.30                                    # 保持段中完成缠绕包覆的归一化时刻
+RELEASE_START = 0.70                               # 入篮保持段中开始释放回卷的归一化时刻
 
 
 def precheck(point, name):
@@ -186,25 +198,50 @@ def main():
         tentacle_ids.append(p.createMultiBody(baseMass=0.0,
                                               baseVisualShapeIndex=tentacle_shape,
                                               basePosition=[0.0, 0.0, -1.0]))
-    tentacle_close = 0.0                             # 0 = 张开，1 = 合拢夹住果实
+    tentacle_t = 0.0                                 # 0=卷曲待机; 0~0.5 反向展开; 0.5~1 缠绕包覆; 1=夹住
 
-    def update_tentacles(close):
-        """按 link6 世界位置摆放触手段：张开 -> 弧形 -> 合拢包覆果实。
+    def update_tentacles(t):
+        """三阶段形态：向后卷曲(对数螺旋) -> 反向展开 -> 球面缠绕包覆果实。
 
-        使用世界坐标（不随末端姿态旋转），确保触手始终环绕 ee 正下方的果实，
-        与演示层果实的视觉搬运位置一致。纯视觉，不参与误差判定。
+        t in [0,1]：0 = 卷曲待机；0~0.5 由卷曲插值到展开；0.5~1 由展开插值到缠绕。
+        全程使用世界坐标（相对 link6 原点 ee），不随末端姿态旋转，确保与果实的
+        视觉搬运位置 [ee - FRUIT_HELD_Z] 对齐。纯视觉，不参与误差判定。
         """
+        def smooth(x):
+            x = min(1.0, max(0.0, x))
+            return x * x * (3.0 - 2.0 * x)
+
         ee = p.getLinkState(robot, 5, computeForwardKinematics=1)[4]
-        for i in range(TENTACLE_COUNT):
-            ang = 2.0 * math.pi * i / TENTACLE_COUNT
-            ca, sa = math.cos(ang), math.sin(ang)
-            for j in range(TENTACLE_SEGS):
-                u = (j + 1) / TENTACLE_SEGS
-                z = -0.004 - TENTACLE_LEN * u
-                r_open = TENTACLE_ROOT_R + (TENTACLE_OPEN_R - TENTACLE_ROOT_R) * math.sin(math.pi * u * 0.85)
-                r_close = TENTACLE_GRIP_R * (0.72 + 0.28 * math.sin(math.pi * u))
-                r = r_open + (r_close - r_open) * close
-                wp = [ee[0] + r * ca, ee[1] + r * sa, ee[2] + z]
+        ca = [math.cos(2.0 * math.pi * i / TENTACLE_COUNT) for i in range(TENTACLE_COUNT)]
+        sa = [math.sin(2.0 * math.pi * i / TENTACLE_COUNT) for i in range(TENTACLE_COUNT)]
+        a_ext = smooth(2.0 * t)                     # 卷曲 -> 展开
+        a_wrap = smooth(2.0 * t - 1.0)              # 展开 -> 缠绕
+        for j in range(TENTACLE_SEGS):
+            u = (j + 1) / TENTACLE_SEGS
+            # (1) 卷曲态：rho = a*exp(b*theta)，盘在末端后方 (+z)，不遮挡果实
+            theta = SPIRAL_THETA_MAX * u
+            rho = SPIRAL_A * math.exp(SPIRAL_B * theta)
+            z_coil = COIL_BACK_Z * (1.0 - u)
+            # (2) 展开态：向果实方向反向伸展的近直线
+            r_ext = TENTACLE_ROOT_R + (TENTACLE_OPEN_R - TENTACLE_ROOT_R) * u
+            z_ext = -0.004 - TENTACLE_LEN * u
+            # (3) 缠绕态：沿果实球面自球顶绕到球底
+            phi = WRAP_PHI0 + (WRAP_PHI1 - WRAP_PHI0) * u
+            rr_wrap = WRAP_R * math.sin(phi)
+            z_wrap = -FRUIT_HELD_Z + WRAP_R * math.cos(phi)
+            for i in range(TENTACLE_COUNT):
+                ang_c = theta + 2.0 * math.pi * i / TENTACLE_COUNT
+                x_coil, y_coil = rho * math.cos(ang_c), rho * math.sin(ang_c)
+                x_ext, y_ext = r_ext * ca[i], r_ext * sa[i]
+                ang_w = 2.0 * math.pi * i / TENTACLE_COUNT + WRAP_TWIST * u
+                x_wrap, y_wrap = rr_wrap * math.cos(ang_w), rr_wrap * math.sin(ang_w)
+                x1 = x_coil + (x_ext - x_coil) * a_ext
+                y1 = y_coil + (y_ext - y_coil) * a_ext
+                z1 = z_coil + (z_ext - z_coil) * a_ext
+                x = x1 + (x_wrap - x1) * a_wrap
+                y = y1 + (y_wrap - y1) * a_wrap
+                z = z1 + (z_wrap - z1) * a_wrap
+                wp = [ee[0] + x, ee[1] + y, ee[2] + z]
                 p.resetBasePositionAndOrientation(tentacle_ids[i * TENTACLE_SEGS + j],
                                                   wp, [0.0, 0.0, 0.0, 1.0])
 
@@ -226,7 +263,7 @@ def main():
         nonlocal n_frames, t_render
         if writer is None and not force:
             return None
-        update_tentacles(tentacle_close)              # 渲染前更新触手视觉形态
+        update_tentacles(tentacle_t)                  # 渲染前更新触手三阶段形态
         t0 = time.perf_counter()
         img = p.getCameraImage(w, h, viewMatrix=view, projectionMatrix=proj,
                                renderer=p.ER_TINY_RENDERER)
@@ -243,7 +280,7 @@ def main():
 
         不写 rows、不参与误差判定、不改阈值与限位；--no-video 下伺服与视觉搬运仍完整执行。
         """
-        nonlocal tentacle_close
+        nonlocal tentacle_t
         q_drop = solve_ik(robot, BASKET_DROP)
         for j in range(6):
             p.resetJointState(robot, j, q_drop[j])
@@ -267,7 +304,7 @@ def main():
                                               [0.0, 0.0, 0.0, 1.0])
             q_prev = list(q_cmd)
             if writer is not None and k % args.every == 0:
-                tentacle_close = 1.0
+                tentacle_t = 1.0                     # 搬运中保持缠绕包覆夹住
                 shoot()
         for k in range(PLACE_HOLD):                    # 入篮保持段：末端停在放果点，果实随末端下降
             p.setJointMotorControlArray(robot, range(6), p.POSITION_CONTROL,
@@ -280,12 +317,12 @@ def main():
                                               [ee[0], ee[1], ee[2] - FRUIT_HELD_Z],
                                               [0.0, 0.0, 0.0, 1.0])
             if writer is not None and k % args.every == 0:
-                tentacle_close = 1.0 - min(1.0, max(0.0, (k / PLACE_HOLD - 0.7) / 0.3))
+                tentacle_t = 1.0 - min(1.0, max(0.0, (k / PLACE_HOLD - RELEASE_START) / (1.0 - RELEASE_START)))
                 shoot()
         p.resetBasePositionAndOrientation(ball_ids[name], list(FRUIT_SLOTS[slot_idx]),
                                           [0.0, 0.0, 0.0, 1.0])   # 果实入篮并留存
         p.changeVisualShape(ball_ids[name], -1, rgbaColor=[0.75, 0.12, 0.12, 1.0])
-        tentacle_close = 0.0                             # 放果后张开，准备下一颗
+        tentacle_t = 0.0                                # 放果后回到卷曲待机，准备下一颗
         q_end = [p.getJointState(robot, j)[0] for j in range(6)]
         return q_end, drop_err, drop_in_lim
 
@@ -325,7 +362,7 @@ def main():
             p.stepSimulation()
             q_prev = list(q_cmd)
             if writer is not None and k % args.every == 0:
-                tentacle_close = min(1.0, max(0.0, (k / ANIM_STEPS - 0.6) / 0.4))
+                tentacle_t = 0.5 * min(1.0, max(0.0, (k / ANIM_STEPS - EXTEND_START) / (1.0 - EXTEND_START)))
                 shoot()
         steady, converge_step = 0, None                # 收敛观察窗（保持段 2 s，渲染）
         for k in range(HOLD_STEPS):
@@ -339,7 +376,7 @@ def main():
             if steady >= STEADY_N and converge_step is None:
                 converge_step = k
             if writer is not None and k % args.every == 0:
-                tentacle_close = 1.0
+                tentacle_t = 0.5 + 0.5 * min(1.0, k / (WRAP_END * HOLD_STEPS))
                 shoot()
         budget = SERVO_MAX_STEPS - ANIM_STEPS - HOLD_STEPS   # 超时兜底段（不渲染）
         for k in range(budget if converge_step is None else 0):
@@ -418,8 +455,9 @@ def main():
               f"{max(e for _, e, _ in place_checks):.2f} mm，"
               f"限位 {sum(ok for _, _, ok in place_checks)}/{len(place_checks)} OK；"
               f"该段为视觉示意，不参与误差判定与 CSV")
-    print(f"演示层仿生触手：{TENTACLE_COUNT} 根 x {TENTACLE_SEGS} 段视觉合拢示意，"
-          f"到点后包覆果实、放果后张开；几何为示意参数（非中科大实物数据），"
+    print(f"演示层仿生触手：{TENTACLE_COUNT} 根 x {TENTACLE_SEGS} 段三阶段视觉示意，"
+          f"卷曲(rho=a*exp(b*theta)) -> 到位反向展开 -> 球面缠绕包覆果实，"
+          f"逐颗循环、放果后回卷；几何为示意参数（非中科大实物数据），"
           f"无接触 / 夹持力，不参与误差判定与 CSV")
     if args.no_video:
         print("产物：results/reach_results.csv / results/scene.png（--no-video：未生成 MP4）")

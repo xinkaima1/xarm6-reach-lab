@@ -1,6 +1,7 @@
 # 实验指导书：xArm6 草莓采摘定点到达仿真（WSL2 + PyBullet）
 
-> **版本**：**v6**（2026-11-06 夜，L1 仿生触手视觉合拢示意 + 自制答辩材料包）：在 v5 演示层中加入 3 根 x 6 段纯视觉触手（示意几何、非中科大实物参数），到点合拢包覆果实、放果后张开；叙事口径保持「图纸与说明书讲仿生机构结构，仿真以通用 6 轴平台验证控制流程」，触手不进 URDF 运动学链、不进误差判据。§8.2 / §8.3 / §13 按 23:21-23:23 全量重跑回填（976 帧 / 133.6 s / render_time_s 133.581），新增 §14.4 与附录 B 示意参数来源，并交付自制答辩材料包。
+> **版本**：**v7**（2026-11-08，触手三阶段动画：卷曲 → 反向展开 → 缠绕包覆）：把「一张一合」升级为按 rho=a*exp(b*theta) 向后卷曲成对数螺旋、到达指定坐标时反向展开、随后沿果实球面缠绕包覆夹住，逐颗循环、放果后回卷待机；§7 内嵌脚本三处同步。§8.2 / §8.3 / §13 按 15:24-15:26 全量重跑回填（976 帧 / 133.3 s / render_time_s 133.319），新增 §14.5 与附录 B 三阶段参数来源。叙事口径、纯视觉边界与数据口径不变。
+> **v6**（2026-11-06 夜，L1 仿生触手视觉合拢示意 + 自制答辩材料包）：在 v5 演示层中加入 3 根 x 6 段纯视觉触手（示意几何、非中科大实物参数），到点合拢包覆果实、放果后张开；叙事口径保持「图纸与说明书讲仿生机构结构，仿真以通用 6 轴平台验证控制流程」，触手不进 URDF 运动学链、不进误差判据。§8.2 / §8.3 / §13 按 23:21-23:23 全量重跑回填（976 帧 / 133.6 s / render_time_s 133.581），新增 §14.4 与附录 B 示意参数来源，并交付自制答辩材料包。
 > **v5**（2026-11-06，演示层抓放循环 + 全量重跑回填）：应课设「采摘草莓」叙事要求，§0 范围正式纳入「到达草莓点 → 末端下降放果 → 果实视觉入篮 → 前往下一点」的演示层循环；§7 内嵌脚本与工程脚本同步更新；§8.2 / §8.3 / §13 按 2026-11-06 全量重跑真实数字回填（976 帧 / 134.2 s），新增 §14.3 变更记录与附录 B 新参数来源。实跑时间 2026-11-06 17:59–18:34，环境 / 产物 / commit 见 §14.3。
 > **v4**（2026-11-04，**首次实跑回填**）：按 WSL2 实测数据回填 §8.2 / §8.3 / §13，新增 §14 实跑变更记录；同步修复 §7 内嵌脚本的 Writer 收尾顺序与产物打印口径、CSV 补 `render_time_s` 列。实跑时间 2026-11-04 18:18–18:28，环境 / 产物 / commit 见 §14.1。
 > **v3**（2026-11-04，第三轮修订：伺服动力学改**无重力设定** + positionGain 1.0 + 轨迹段速度前馈（修复重力下 kp=0.1 稳态误差不可达的伺服瘫塌阻断）；`--no-video` 真跳过常规帧渲染；增益 kwargs 改复数形式（positionGains/velocityGains）；§2.3 累计旋转修正；v3 计划文档答辩话术源对齐 PyBullet 口径）
@@ -20,7 +21,7 @@
 4. 方法：PyBullet + 内置 `calculateInverseKinematics` **位置-only IK**（不约束姿态）；
 5. 引擎口径全项目统一为 **PyBullet**，文档、说明书、答辩话术不出现第二引擎叙事；
 6. 仿真动力学为**无重力设定**（`setGravity(0,0,0)`）+ 轨迹段速度前馈：验证的是轨迹规划与位置伺服的**指令跟踪与定位收敛**；重力负载前馈补偿（逆动力学）属实物化后续工作，不在本轮范围。本条为答辩与说明书的统一口径，主动声明而非被问出来；
-7. **演示层抓放循环（v5 正式纳入范围）**：每个草莓点到位判定完成后，追加一段「移到篮子放果点 → 末端下降（示意低头放果）→ 果实视觉搬入篮中并留存 → 前往下一点」的轨迹，形成 抓-放-抓 的采摘观感。该层是**纯视觉示意**：篮子与果实均为静态视觉体，果实位置由脚本直接搬运，**无夹爪、无接触/约束、无夹持力、不约束末端姿态**；放果点不是第 6 个验收目标，不写入 CSV、不参与 §1.3 的两重静态判定与伺服跟踪判定，也不代表抓取成功率或果实识别能力。演示层另含 **L1 仿生触手视觉合拢示意**（3 根 x 6 段纯视觉体，几何为示意值、非中科大实物参数）：到点后向中心收拢包覆果实、放果后张开；它不是 URDF 末端执行器、不进运动学链、无接触 / 夹持力、不写 CSV。叙事口径为**图纸与说明书讲仿生机构结构，仿真以通用 6 轴平台验证控制流程**。答辩必须主动说明这一边界。
+7. **演示层抓放循环（v5 正式纳入范围）**：每个草莓点到位判定完成后，追加一段「移到篮子放果点 → 末端下降（示意低头放果）→ 果实视觉搬入篮中并留存 → 前往下一点」的轨迹，形成 抓-放-抓 的采摘观感。该层是**纯视觉示意**：篮子与果实均为静态视觉体，果实位置由脚本直接搬运，**无夹爪、无接触/约束、无夹持力、不约束末端姿态**；放果点不是第 6 个验收目标，不写入 CSV、不参与 §1.3 的两重静态判定与伺服跟踪判定，也不代表抓取成功率或果实识别能力。演示层另含 **v7 仿生触手三阶段视觉示意**（3 根 x 6 段纯视觉体，几何为示意值、非中科大实物参数）：接近阶段按 rho=a*exp(b*theta) **向后卷曲成对数螺旋**并收在末端后方不遮挡果实，到达指定坐标时**反向展开**，随后沿果实球面**缠绕包覆夹住**，逐颗循环、放果后回卷待机；它不是 URDF 末端执行器、不进运动学链、无接触 / 夹持力、不写 CSV。叙事口径为**图纸与说明书讲仿生机构结构，仿真以通用 6 轴平台验证控制流程**。答辩必须主动说明这一边界。
 
 ---
 
@@ -52,7 +53,7 @@
 
 ### 1.4 验收产物
 
-1. `results/reach_results.csv`：双误差列（`err_ik` 静态残差 / `err_track` 伺服跟踪误差）+ COM 备查列 + 限位判定 + 伺服收敛步数 + 渲染耗时（`render_time_s` 为全局渲染耗时，各行同值；**v6 实跑 = 133.581 s**）；仍为 5 行、20 列，演示层不写入；
+1. `results/reach_results.csv`：双误差列（`err_ik` 静态残差 / `err_track` 伺服跟踪误差）+ COM 备查列 + 限位判定 + 伺服收敛步数 + 渲染耗时（`render_time_s` 为全局渲染耗时，各行同值；**v7 实跑 = 133.319 s**）；仍为 5 行、20 列，演示层不写入；
 2. `results/reach_demo.mp4`：机械臂依次到达 5 个草莓点、并在每点后完成「抓 → 放入篮子 → 前往下一点」演示段的动画（**v5 实跑 976 帧 / 32.53 s**）；
 3. `results/scene.png`：终态场景截图（篮中 5 颗果实可见）；
 4. `results/reach_demo.gif` / `results/reach_keyframes.png`：由同一次运行派生的答辩素材（循环动图 / 关键帧拼图）；
@@ -588,17 +589,29 @@ FRUIT_SLOTS = [                                     # 5 颗果实在篮内的留
 ]
 FRUIT_HELD_Z = 0.03                                # 搬运时果实相对 link6 原点的下方偏移（m）
 
-# ---- 演示层仿生触手（L1 视觉合拢示意，不参与误差判定与物理） ----
+# ---- 演示层仿生触手：卷曲 -> 反向展开 -> 缠绕包覆（L1 纯视觉，不参与误差判定与物理） ----
 # 参数按 SpiRobs 官方「数根触手抓鸡蛋」演示的比例取一组示意几何值；
-# **非中科大实物参数、非论文测量值**，仅用于动画表达「夹住红球」，来源见指导书附录 B。
+# **非中科大实物参数、非论文测量值**；rho = a*exp(b*theta) 仅用于示意卷曲形态，来源见附录 B。
 TENTACLE_COUNT = 3                                 # 触手根数（示意）
-TENTACLE_SEGS = 6                                  # 每根离散段数（对数螺旋离散示意）
-TENTACLE_LEN = 0.13                                # 触手展开长度 (m，示意)
+TENTACLE_SEGS = 6                                  # 每根离散段数（示意）
+TENTACLE_LEN = 0.13                                # 展开态触手长度 (m，示意)
 TENTACLE_RADIUS = 0.008                            # 段球半径 (m，示意)
 TENTACLE_ROOT_R = 0.022                            # 根部离轴半径 (m，示意)
-TENTACLE_OPEN_R = 0.065                            # 张开时中段离轴半径 (m，示意)
-TENTACLE_GRIP_R = 0.034                            # 合拢时包覆半径 (m，略大于果实半径 0.025)
+TENTACLE_OPEN_R = 0.065                            # 展开态中段离轴半径 (m，示意)
 TENTACLE_COLOR = [0.90, 0.62, 0.20, 1.0]           # 触手颜色（示意）
+# 卷曲态：对数螺旋 rho = SPIRAL_A*exp(SPIRAL_B*theta)，盘在末端后方 (+z)，不遮挡果实
+SPIRAL_A = 0.010                                   # 螺旋起始半径 (m，示意)
+SPIRAL_B = 0.22                                    # 螺旋增长系数 (示意)
+SPIRAL_THETA_MAX = 2.4 * math.pi                   # 卷曲总转角 (rad，示意，约 1.2 圈)
+COIL_BACK_Z = 0.050                                # 卷曲态向末端后方抬升 (m，示意)
+# 缠绕态：沿果实球面（球心在 ee 下方 FRUIT_HELD_Z）自球顶绕到球底
+WRAP_R = 0.033                                     # 包覆球面半径 (m，略大于果实半径 0.025)
+WRAP_PHI0, WRAP_PHI1 = 0.18 * math.pi, 0.96 * math.pi   # 球顶到球底极角范围 (示意)
+WRAP_TWIST = 0.55 * math.pi                        # 缠绕时绕球轴的附加转角 (示意)
+# 阶段时间线：到位段后段展开，保持段前段缠绕，入篮段后段释放回卷
+EXTEND_START = 0.75                                # 到位轨迹段中开始反向展开的归一化时刻
+WRAP_END = 0.30                                    # 保持段中完成缠绕包覆的归一化时刻
+RELEASE_START = 0.70                               # 入篮保持段中开始释放回卷的归一化时刻
 
 
 def precheck(point, name):
@@ -724,25 +737,50 @@ def main():
         tentacle_ids.append(p.createMultiBody(baseMass=0.0,
                                               baseVisualShapeIndex=tentacle_shape,
                                               basePosition=[0.0, 0.0, -1.0]))
-    tentacle_close = 0.0                             # 0 = 张开，1 = 合拢夹住果实
+    tentacle_t = 0.0                                 # 0=卷曲待机; 0~0.5 反向展开; 0.5~1 缠绕包覆; 1=夹住
 
-    def update_tentacles(close):
-        """按 link6 世界位置摆放触手段：张开 -> 弧形 -> 合拢包覆果实。
+    def update_tentacles(t):
+        """三阶段形态：向后卷曲(对数螺旋) -> 反向展开 -> 球面缠绕包覆果实。
 
-        使用世界坐标（不随末端姿态旋转），确保触手始终环绕 ee 正下方的果实，
-        与演示层果实的视觉搬运位置一致。纯视觉，不参与误差判定。
+        t in [0,1]：0 = 卷曲待机；0~0.5 由卷曲插值到展开；0.5~1 由展开插值到缠绕。
+        全程使用世界坐标（相对 link6 原点 ee），不随末端姿态旋转，确保与果实的
+        视觉搬运位置 [ee - FRUIT_HELD_Z] 对齐。纯视觉，不参与误差判定。
         """
+        def smooth(x):
+            x = min(1.0, max(0.0, x))
+            return x * x * (3.0 - 2.0 * x)
+
         ee = p.getLinkState(robot, 5, computeForwardKinematics=1)[4]
-        for i in range(TENTACLE_COUNT):
-            ang = 2.0 * math.pi * i / TENTACLE_COUNT
-            ca, sa = math.cos(ang), math.sin(ang)
-            for j in range(TENTACLE_SEGS):
-                u = (j + 1) / TENTACLE_SEGS
-                z = -0.004 - TENTACLE_LEN * u
-                r_open = TENTACLE_ROOT_R + (TENTACLE_OPEN_R - TENTACLE_ROOT_R) * math.sin(math.pi * u * 0.85)
-                r_close = TENTACLE_GRIP_R * (0.72 + 0.28 * math.sin(math.pi * u))
-                r = r_open + (r_close - r_open) * close
-                wp = [ee[0] + r * ca, ee[1] + r * sa, ee[2] + z]
+        ca = [math.cos(2.0 * math.pi * i / TENTACLE_COUNT) for i in range(TENTACLE_COUNT)]
+        sa = [math.sin(2.0 * math.pi * i / TENTACLE_COUNT) for i in range(TENTACLE_COUNT)]
+        a_ext = smooth(2.0 * t)                     # 卷曲 -> 展开
+        a_wrap = smooth(2.0 * t - 1.0)              # 展开 -> 缠绕
+        for j in range(TENTACLE_SEGS):
+            u = (j + 1) / TENTACLE_SEGS
+            # (1) 卷曲态：rho = a*exp(b*theta)，盘在末端后方 (+z)，不遮挡果实
+            theta = SPIRAL_THETA_MAX * u
+            rho = SPIRAL_A * math.exp(SPIRAL_B * theta)
+            z_coil = COIL_BACK_Z * (1.0 - u)
+            # (2) 展开态：向果实方向反向伸展的近直线
+            r_ext = TENTACLE_ROOT_R + (TENTACLE_OPEN_R - TENTACLE_ROOT_R) * u
+            z_ext = -0.004 - TENTACLE_LEN * u
+            # (3) 缠绕态：沿果实球面自球顶绕到球底
+            phi = WRAP_PHI0 + (WRAP_PHI1 - WRAP_PHI0) * u
+            rr_wrap = WRAP_R * math.sin(phi)
+            z_wrap = -FRUIT_HELD_Z + WRAP_R * math.cos(phi)
+            for i in range(TENTACLE_COUNT):
+                ang_c = theta + 2.0 * math.pi * i / TENTACLE_COUNT
+                x_coil, y_coil = rho * math.cos(ang_c), rho * math.sin(ang_c)
+                x_ext, y_ext = r_ext * ca[i], r_ext * sa[i]
+                ang_w = 2.0 * math.pi * i / TENTACLE_COUNT + WRAP_TWIST * u
+                x_wrap, y_wrap = rr_wrap * math.cos(ang_w), rr_wrap * math.sin(ang_w)
+                x1 = x_coil + (x_ext - x_coil) * a_ext
+                y1 = y_coil + (y_ext - y_coil) * a_ext
+                z1 = z_coil + (z_ext - z_coil) * a_ext
+                x = x1 + (x_wrap - x1) * a_wrap
+                y = y1 + (y_wrap - y1) * a_wrap
+                z = z1 + (z_wrap - z1) * a_wrap
+                wp = [ee[0] + x, ee[1] + y, ee[2] + z]
                 p.resetBasePositionAndOrientation(tentacle_ids[i * TENTACLE_SEGS + j],
                                                   wp, [0.0, 0.0, 0.0, 1.0])
 
@@ -764,7 +802,7 @@ def main():
         nonlocal n_frames, t_render
         if writer is None and not force:
             return None
-        update_tentacles(tentacle_close)              # 渲染前更新触手视觉形态
+        update_tentacles(tentacle_t)                  # 渲染前更新触手三阶段形态
         t0 = time.perf_counter()
         img = p.getCameraImage(w, h, viewMatrix=view, projectionMatrix=proj,
                                renderer=p.ER_TINY_RENDERER)
@@ -781,7 +819,7 @@ def main():
 
         不写 rows、不参与误差判定、不改阈值与限位；--no-video 下伺服与视觉搬运仍完整执行。
         """
-        nonlocal tentacle_close
+        nonlocal tentacle_t
         q_drop = solve_ik(robot, BASKET_DROP)
         for j in range(6):
             p.resetJointState(robot, j, q_drop[j])
@@ -805,7 +843,7 @@ def main():
                                               [0.0, 0.0, 0.0, 1.0])
             q_prev = list(q_cmd)
             if writer is not None and k % args.every == 0:
-                tentacle_close = 1.0
+                tentacle_t = 1.0                     # 搬运中保持缠绕包覆夹住
                 shoot()
         for k in range(PLACE_HOLD):                    # 入篮保持段：末端停在放果点，果实随末端下降
             p.setJointMotorControlArray(robot, range(6), p.POSITION_CONTROL,
@@ -818,12 +856,12 @@ def main():
                                               [ee[0], ee[1], ee[2] - FRUIT_HELD_Z],
                                               [0.0, 0.0, 0.0, 1.0])
             if writer is not None and k % args.every == 0:
-                tentacle_close = 1.0 - min(1.0, max(0.0, (k / PLACE_HOLD - 0.7) / 0.3))
+                tentacle_t = 1.0 - min(1.0, max(0.0, (k / PLACE_HOLD - RELEASE_START) / (1.0 - RELEASE_START)))
                 shoot()
         p.resetBasePositionAndOrientation(ball_ids[name], list(FRUIT_SLOTS[slot_idx]),
                                           [0.0, 0.0, 0.0, 1.0])   # 果实入篮并留存
         p.changeVisualShape(ball_ids[name], -1, rgbaColor=[0.75, 0.12, 0.12, 1.0])
-        tentacle_close = 0.0                             # 放果后张开，准备下一颗
+        tentacle_t = 0.0                                # 放果后回到卷曲待机，准备下一颗
         q_end = [p.getJointState(robot, j)[0] for j in range(6)]
         return q_end, drop_err, drop_in_lim
 
@@ -863,7 +901,7 @@ def main():
             p.stepSimulation()
             q_prev = list(q_cmd)
             if writer is not None and k % args.every == 0:
-                tentacle_close = min(1.0, max(0.0, (k / ANIM_STEPS - 0.6) / 0.4))
+                tentacle_t = 0.5 * min(1.0, max(0.0, (k / ANIM_STEPS - EXTEND_START) / (1.0 - EXTEND_START)))
                 shoot()
         steady, converge_step = 0, None                # 收敛观察窗（保持段 2 s，渲染）
         for k in range(HOLD_STEPS):
@@ -877,7 +915,7 @@ def main():
             if steady >= STEADY_N and converge_step is None:
                 converge_step = k
             if writer is not None and k % args.every == 0:
-                tentacle_close = 1.0
+                tentacle_t = 0.5 + 0.5 * min(1.0, k / (WRAP_END * HOLD_STEPS))
                 shoot()
         budget = SERVO_MAX_STEPS - ANIM_STEPS - HOLD_STEPS   # 超时兜底段（不渲染）
         for k in range(budget if converge_step is None else 0):
@@ -956,8 +994,9 @@ def main():
               f"{max(e for _, e, _ in place_checks):.2f} mm，"
               f"限位 {sum(ok for _, _, ok in place_checks)}/{len(place_checks)} OK；"
               f"该段为视觉示意，不参与误差判定与 CSV")
-    print(f"演示层仿生触手：{TENTACLE_COUNT} 根 x {TENTACLE_SEGS} 段视觉合拢示意，"
-          f"到点后包覆果实、放果后张开；几何为示意参数（非中科大实物数据），"
+    print(f"演示层仿生触手：{TENTACLE_COUNT} 根 x {TENTACLE_SEGS} 段三阶段视觉示意，"
+          f"卷曲(rho=a*exp(b*theta)) -> 到位反向展开 -> 球面缠绕包覆果实，"
+          f"逐颗循环、放果后回卷；几何为示意参数（非中科大实物数据），"
           f"无接触 / 夹持力，不参与误差判定与 CSV")
     if args.no_video:
         print("产物：results/reach_results.csv / results/scene.png（--no-video：未生成 MP4）")
@@ -1007,11 +1046,11 @@ python xarm6_reach_demo.py --threshold 0.003   # 换阈值复跑（阈值可配�
 
 | 模式 | 帧数估算 | 实测耗时（2026-11-06，v5） |
 |------|----------|------------------------|
-| 默认 960×720 / 每 8 步 | 每点到位段约 120 帧 + 演示层抓放段约 75 帧，共 ~975 帧 | **976 帧，渲染 133.6 s，全程 133.8 s** |
-| 降级 640×480 / 每 16 步 | 约 ~490 帧 | **未执行**（默认模式 133.6 s < 5 分钟预算，未触发降级分支） |
+| 默认 960×720 / 每 8 步 | 每点到位段约 120 帧 + 演示层抓放段约 75 帧，共 ~975 帧 | **976 帧，渲染 133.3 s，全程 133.6 s** |
+| 降级 640×480 / 每 16 步 | 约 ~490 帧 | **未执行**（默认模式 133.3 s < 5 分钟预算，未触发降级分支） |
 | `--no-video` | 1 帧（截图） | **0.1 s**（渲染 1 帧 0.1 s / 全程 0.1 s；伺服、抓放段与果实搬运仍完整执行） |
 
-ER_TINY_RENDERER 为 CPU 软件渲染，不依赖 WSLg/GPU，但高分辨率下耗时不可忽略。**渲染耗时由脚本自动打印并应在结果表登记**。若默认模式渲染超过 5 分钟，属正常范围；超过 15 分钟改用降级分支重跑。v6 实测 133.6 s 落在预算内（v4 为 601 帧 / 82.5 s，帧数增加来自 5 段抓放演示），故降级分支未运行；该分支的耗时不作任何结论引用。
+ER_TINY_RENDERER 为 CPU 软件渲染，不依赖 WSLg/GPU，但高分辨率下耗时不可忽略。**渲染耗时由脚本自动打印并应在结果表登记**。若默认模式渲染超过 5 分钟，属正常范围；超过 15 分钟改用降级分支重跑。v7 实测 133.3 s 落在预算内（v4 为 601 帧 / 82.5 s，帧数增加来自 5 段抓放演示），故降级分支未运行；该分支的耗时不作任何结论引用。
 
 ### 8.3 结果记录表（2026-11-06 全量重跑回填；数据源：控制台汇总表 + `results/reach_results.csv`）
 
@@ -1023,13 +1062,13 @@ ER_TINY_RENDERER 为 CPU 软件渲染，不依赖 WSLg/GPU，但高分辨率下�
 | P4 | (0.35, 0.12, 0.50) | 0.48 | 0.48 | 12.65 | OK | 59 | 到达 | |
 | P5 | (0.35, -0.12, 0.50) | 0.48 | 0.48 | 12.99 | OK | 59 | 到达 | |
 
-汇总信息：阈值 = **5 mm**（`--threshold 0.005`，未放宽）；渲染耗时 = **133.6 s**（976 帧 @ 960×720）；总耗时 = **133.8 s**（墙钟 23:21:09 → 23:23:24，135 s）；pybullet 版本 = **3.2.7**（build time Jan 29 2025）。CSV 的 `render_time_s` = 133.581（全局渲染耗时，各行同值）。演示层 5 段抓放 + 3 根 x 6 段触手视觉合拢示意：放果点 IK 残差 0.97 mm、限位 5/5 OK，该段不写入 CSV。
+汇总信息：阈值 = **5 mm**（`--threshold 0.005`，未放宽）；渲染耗时 = **133.3 s**（976 帧 @ 960×720）；总耗时 = **133.6 s**（墙钟 15:24:37 → 15:26:51，134 s）；pybullet 版本 = **3.2.7**（build time Jan 29 2025）。CSV 的 `render_time_s` = 133.319（全局渲染耗时，各行同值）。演示层 5 段抓放 + 触手三阶段（卷曲 / 展开 / 缠绕包覆）视觉示意：放果点 IK 残差 0.97 mm、限位 5/5 OK，该段不写入 CSV。
 
 **COM 备查列的末位口径**：表内 COM 数值取控制台汇总表打印值；P1 控制台为 **13.13 mm**，而 CSV 的 `err_com_m=0.013135`（×1000 后按 2 位舍入为 **13.14 mm**），0.01 mm 差异来自 CSV 六位小数（m）存储。COM 仅备查、不参与任何判定；主口径 `err_ik` / `err_track` 及限位、收敛步在控制台与 CSV 两处逐点一致。
 
 补充实测：`--no-video` 快速模式逐点数值与完整运行完全一致；`--check-out-of-range` 退出码 2；MP4 可完整解码 **976 帧 / 30 fps / 32.53 s**；画面**抽样判读 6 帧**（第 0/119/194/389/779/975 帧）：篮子与果实入篮清晰可见，终态篮中 5 颗，非黑屏（**全量逐帧判读仍未执行**）；降级渲染分支、`--threshold` 换阈值复跑、全新机器从零环境复跑均**未执行**。
 
-**实测结论**：5 点全部满足两重静态判定 + 伺服跟踪判据，逐点伺服跟踪误差 **0.29–0.88 mm < 5 mm**（实测值见表），`converged=1`、`in_limits=1`、收敛步全为 59；未发生任何目标点坐标或伺服增益调整（§9.2 决策树未触发）。**与 v4（11-04）逐点完全一致**：抓放演示段改变了各点伺服起始位姿，但保持段 480 步足以收敛到同一 IK 解，故 `err_ik` / `err_track` / `err_com` / q1–q6 / 收敛步均无变化，唯一变化是帧数与渲染耗时（601 → 976 帧，82.501 → 134.205 → 133.581 s）。本结论只覆盖**无重力设定**下的轨迹跟踪与定位收敛，不代表带重力实物化性能，也不代表抓取成功率；演示层抓放循环与 L1 触手合拢仅为流程可视化（§0 第 7 条）；v6 与 v5 的逐点误差、q1-q6、收敛步完全一致，触手是纯视觉层，未改控制链路。
+**实测结论**：5 点全部满足两重静态判定 + 伺服跟踪判据，逐点伺服跟踪误差 **0.29–0.88 mm < 5 mm**（实测值见表），`converged=1`、`in_limits=1`、收敛步全为 59；未发生任何目标点坐标或伺服增益调整（§9.2 决策树未触发）。**与 v4（11-04）逐点完全一致**：抓放演示段改变了各点伺服起始位姿，但保持段 480 步足以收敛到同一 IK 解，故 `err_ik` / `err_track` / `err_com` / q1–q6 / 收敛步均无变化，唯一变化是帧数与渲染耗时（601 → 976 帧，82.501 → 134.205 → 133.581 → 133.319 s）。本结论只覆盖**无重力设定**下的轨迹跟踪与定位收敛，不代表带重力实物化性能，也不代表抓取成功率；演示层抓放循环与 v7 触手三阶段仅为流程可视化（§0 第 7 条）；v7 与 v6 / v5 的逐点误差、q1-q6、收敛步逐点完全一致，触手是纯视觉层，未改控制链路。
 
 **结论书写规则**：仅当 5 点实测全部"到达"后，方可在结论区写"逐点误差 < 5 mm（实测值见表）"；存在未达标点时，结论如实写"Px 未收敛/超阈值，已按 §9.2 调整/记录"。**禁止先写结论再凑数。**
 
@@ -1121,16 +1160,16 @@ cp -r ~/xarm_lab/. /mnt/d/桌面/CRAIC/success/202607091551/temp_20261104_01/xar
 8. **为什么用 PyBullet？**
    内置带限位的逆运动学求解器，适合快速验证定位链路；模型与参数全部来自 xArm 官方开源仓库（来源对照见附录 B）。
 9. **动画里「摘草莓、放进篮子」是真的抓取吗？**
-   **不是**，这是 §0 第 7 条的演示层抓放循环：果实球是位置标记，脚本直接把它的视觉位置搬到篮中；末端下降到放果点表达「低头」，因位置-only IK 不约束姿态，末端姿态并未真实改变。没有夹爪、没有接触检测、没有夹持力或接触力学，也不做果实识别。5 个草莓点的到位误差仍按 §1.3 判定，演示段不产生误差数据、不写入 CSV；动画证明的是「流程可达 + 定位精度」，不是抓取成功率。v6 加入的 3 根仿生触手同样是演示层视觉合拢示意（示意几何、非实物参数），不是 URDF 末端执行器，不构成真实夹持；仿生触手的机构结构在 A0 图纸与说明书中讲，仿真只验证通用 6 轴平台的控制流程。
+   **不是**，这是 §0 第 7 条的演示层抓放循环：果实球是位置标记，脚本直接把它的视觉位置搬到篮中；末端下降到放果点表达「低头」，因位置-only IK 不约束姿态，末端姿态并未真实改变。没有夹爪、没有接触检测、没有夹持力或接触力学，也不做果实识别。5 个草莓点的到位误差仍按 §1.3 判定，演示段不产生误差数据、不写入 CSV；动画证明的是「流程可达 + 定位精度」，不是抓取成功率。v7 的 3 根仿生触手按「向后卷曲成对数螺旋 → 到位反向展开 → 球面缠绕包覆」三阶段逐颗循环（示意几何、非实物参数），仍是演示层纯视觉示意，不是 URDF 末端执行器，不构成真实夹持；仿生触手的机构结构在 A0 图纸与说明书中讲，仿真只验证通用 6 轴平台的控制流程。
 
 ---
 
-## 13. 实跑回填清单（v6 状态，2026-11-06）
+## 13. 实跑回填清单（v7 状态，2026-11-08）
 
 - [x] pybullet 实际安装版本与安装耗时（步骤三）：3.2.7 / cp311 wheel 103.2 MB / 下载 6 分 31 秒（见 §3 步骤三、运行日志 Node 1）
 - [x] 5 点 err_ik / err_track / err_com / 限位判定 / 收敛步 / 结论（§8.3 表）：已按 11-06 全量重跑的 `results/reach_results.csv` 回填，逐点与 v4 一致
-- [x] 渲染耗时：默认模式 **976 帧 / 133.6 s**（§8.2）；`render_time_s` = 133.581；`--no-video` 0.1 s；降级模式**未执行**（未触发）
-- [x] L1 仿生触手：3 根 x 6 段视觉合拢示意，参数为示意值（非实物数据），不进运动学链 / 误差判定 / CSV；抽样判读 6 帧可见合拢与入篮
+- [x] 渲染耗时：默认模式 **976 帧 / 133.3 s**（§8.2）；`render_time_s` = 133.319；`--no-video` 0.1 s；降级模式**未执行**（未触发）
+- [x] v7 仿生触手三阶段：3 根 x 6 段，卷曲(rho=a*exp(b*theta)) / 反向展开 / 球面缠绕包覆，逐颗循环、放果后回卷；抽样判读 6 帧（0/52/78/194/700/975）三阶段形态可辨；示意参数、不进运动学链 / 误差判定 / CSV
 - [x] 总耗时：**134.3 s**（墙钟 17:59:38 → 18:01:53）
 - [x] 演示层抓放：5 段，放果点 IK 残差 0.97 mm、限位 5/5 OK，篮子与果实入篮已抽样判读可见（§14.3）
 - [x] 目标点变更登记（§9.2 表）：无变更，5 点一次通过
@@ -1141,7 +1180,7 @@ cp -r ~/xarm_lab/. /mnt/d/桌面/CRAIC/success/202607091551/temp_20261104_01/xar
 
 ---
 
-## 14. 实跑变更记录（v4 基线 + v5 / v6 扩展）
+## 14. 实跑变更记录（v4 基线 + v5 / v6 / v7 扩展）
 
 ### 14.1 实跑基线
 
@@ -1217,6 +1256,31 @@ cp -r ~/xarm_lab/. /mnt/d/桌面/CRAIC/success/202607091551/temp_20261104_01/xar
 
 **三处同步**：WSL 工程 / Windows 归档 `xarm_lab_run` / 本文档 §6 §7 内嵌脚本逐字一致，`py_compile` 通过；结果与素材同步归档后逐文件 `cmp` 全绿。
 
+### 14.5 v7：触手三阶段动画（卷曲 → 反向展开 → 缠绕包覆，2026-11-08）
+
+| 项 | 值 |
+|---|---|
+| 实跑时间 | 2026-11-08 15:24:37 → 15:26:51（+08:00），完整运行 |
+| 命令 | `python xarm6_reach_demo.py --no-video`（回归）→ `--check-out-of-range`（退出码 2）→ `python xarm6_reach_demo.py` |
+| 产物 | CSV 749 B（5 行 20 列）、MP4 1.7 MB（976 帧 / 32.53 s）、scene.png 28 KB、GIF 195 帧 / 363 KB、关键帧拼图 264 KB |
+| 旧值 → 新值 | `render_time_s` 133.581 → **133.319**；渲染 133.6 s → **133.3 s**；全程 133.8 s → **133.6 s**；帧数仍 976；**5 点误差、q1-q6、收敛步与 v6 逐点完全一致** |
+| 未执行 | 降级渲染分支、换阈值复跑、全新机器零探索复跑、MP4 全量逐帧判读（已抽样 6 帧） |
+
+**变更登记（旧值 → 新值 → 原因 → 重跑结果）**
+
+| # | 类别 | 旧值 | 新值 / 处理 | 原因 | 重跑结果 |
+|---|------|------|-------------|------|----------|
+| 1 | 形态函数 | `update_tentacles(close)` 只有径向插值 `r_open → r_close`，触手始终下垂，视觉上「一张一合」 | 改为 `update_tentacles(t)` 三阶段：`t=0` 按 rho=a*exp(b*theta) 向后卷曲成对数螺旋并收在末端后方；`0~0.5` 反向展开到向下伸展态；`0.5~1` 沿果实球面（球心 `ee` 下方 `FRUIT_HELD_Z`）自球顶绕到球底包覆夹住；`t=1→0` 释放回卷 | 用户指出应体现 SpiRobs 「uncurling and wrapping」机构原理，而非简单开合 | 帧 0 卷曲成螺旋团、帧 52 展开成下垂珠串、帧 78 绕成环包住果实，三阶段形态可辨 |
+| 2 | 时间线 | `tentacle_close` 6 处赋值：到位段后 40% 0→1，保持/搬运段 1，入篮段 1→0 | 改为 `tentacle_t`：到位段前 75% 卷曲待机、后 25% 展开（0→0.5），保持段前 30% 缠绕（0.5→1），保持/放果/入篮前段保持 1，入篮后 30% 释放回卷（1→0），放果后回 0；新增 `EXTEND_START` / `WRAP_END` / `RELEASE_START` 三个节拍常量 | 让卷曲、展开、包覆各有独立可判读的帧区间，逐颗果实重复 | 每点仍 195 帧、总 976 帧；关键帧 0/52/78/194/700/975 覆盖三阶段与终态 |
+| 3 | 参数来源 | 附录 B 记 `TENTACLE_GRIP_R` 等 7 项 | 移除不再使用的 `TENTACLE_GRIP_R`，新增螺旋（`SPIRAL_A/B/THETA_MAX`、`COIL_BACK_Z`）、缠绕（`WRAP_R/PHI0/PHI1/TWIST`）与节拍常量，全部显著标注「本实验示意值」 | 几何与真实机构参数无关，避免误导 | 附录 B 参数行已重写；汇总表改为三阶段描述 |
+| 4 | 判读素材 | 关键帧 0/100/194/389/700/975 | 重抽 0/52/78/194/700/975，中文标签标明卷曲 / 展开 / 缠绕 / 释放 / 终态 | 便于答辩一眼看出三阶段 | 拼图 1440x784，抽样判读通过，非全量逐帧 |
+
+**未改动项（红线核对）**：`--threshold` 仍 0.005 m；URDF 关节限位、HOME / restPoses、TARGETS（P1-P5）、FORCES、POS_GAIN / VEL_GAIN、`setGravity(0,0,0)`、STEADY_N、SERVO_MAX_STEPS、IK_MAX_ITER、`getLinkState(robot,5)[4]` 主口径、CSV 字段与 5 行结构、`ANIM_STEPS` / `HOLD_STEPS` / `PLACE_STEPS` / `PLACE_HOLD` / `--every` 帧预算、`writer.close()` 收尾顺序全部未改；未删点、未隐藏失败记录；§9.2 决策树未触发。
+
+**口径边界**：三阶段仍是**纯视觉演示层**，卷曲 / 展开 / 包覆由脚本直接摆放 18 个静态视觉段体，无绳索、电机、张力、接触或夹持力，不进 URDF 运动学链与误差判据；叙事仍为「图纸与说明书讲仿生机构结构，仿真以通用 6 轴平台验证控制流程」。
+
+**三处同步**：WSL 工程 / Windows 归档 `xarm_lab_run` / 本文档 §6 §7 内嵌脚本逐字一致（三份指导书副本同步），`py_compile` 通过；结果与素材同步归档后逐文件 `cmp` 全绿。
+
 ---
 
 ## 附录 B：参数来源对照表（每个数字可复核）
@@ -1236,7 +1300,7 @@ cp -r ~/xarm_lab/. /mnt/d/桌面/CRAIC/success/202607091551/temp_20261104_01/xar
 | 伺服参数 | STEADY_N=60（连续 0.25 s 达标判收敛）、SERVO_MAX_STEPS=3000（超时兜底 12.5 s）、POS_GAIN=1.0 / VEL_GAIN=1.0 + 轨迹段速度前馈 targetVelocities（无重力设定下的验证基线：无扰动时 PD 稳态误差→0，kp=1.0 收敛时间常数约 1–3 s，12.5 s 兜底预算充足）、梯形轨迹 480 步 @240 Hz | 本实验定义。依据：PyBullet POSITION_CONTROL 力矩 = kp·Δq + kd·(v_cmd−v)，带重力时稳态需 Δq=τ_g/kp（joint2 重力矩 ~12.7 N·m，kp=0.1 时需 127 rad，物理不可达），纯位置伺服不引入重力前馈时必须关重力 |
 | 预筛半径/高度 | 0.70 m / [0.10, 0.75] m | 本实验定义（依据 xArm6 名义臂展 ~0.7 m） |
 | pybullet wheel 可用性 | 3.2.6/3.2.7 含 cp311-manylinux wheel，无 cp312+ | PyPI（tuna 镜像）2026-11-04 实测 |
-| L1 仿生触手示意参数（v6 新增，见 §7 常量区） | `TENTACLE_COUNT=3`、`TENTACLE_SEGS=6`、`TENTACLE_LEN=0.13` m、`TENTACLE_RADIUS=0.008` m、`TENTACLE_ROOT_R=0.022` m、`TENTACLE_OPEN_R=0.065` m、`TENTACLE_GRIP_R=0.034` m | **本实验演示层示意值**：按 SpiRobs 官方「数根触手抓鸡蛋」演示比例取值，**非中科大实物参数、非论文测量值**；纯视觉、不进 URDF / 运动学链、不参与 §1.3 判定、不写入 CSV |
+| v7 触手三阶段示意参数（见 §7 常量区） | `TENTACLE_COUNT=3` / `TENTACLE_SEGS=6` / `TENTACLE_LEN=0.13` m / `TENTACLE_RADIUS=0.008` m / `TENTACLE_ROOT_R=0.022` m / `TENTACLE_OPEN_R=0.065` m；卷曲 `SPIRAL_A=0.010` m、`SPIRAL_B=0.22`、`SPIRAL_THETA_MAX=2.4π`、`COIL_BACK_Z=0.050` m；缠绕 `WRAP_R=0.033` m、`WRAP_PHI0/PHI1=0.18π/0.96π`、`WRAP_TWIST=0.55π`；节拍 `EXTEND_START=0.75`、`WRAP_END=0.30`、`RELEASE_START=0.70` | **本实验演示层示意值**：rho=a*exp(b*theta) 仅用于卷曲形态，比例按 SpiRobs 官方「数根触手抓鸡蛋」演示取值，**非中科大实物参数、非论文测量值**；纯视觉、不进 URDF / 运动学链、不参与 §1.3 判定、不写入 CSV |
 | 演示层抓放参数（v5 新增，见 §7 常量区） | `BASKET_CENTER=(0.25,-0.30,0.10)` m、`BASKET_DROP=(0.25,-0.30,0.20)` m、`BASKET_HALF=(0.09,0.09,0.055)` m、`PLACE_STEPS=480 / PLACE_HOLD=120`、`FRUIT_SLOTS` 5 个篮内槽位、`FRUIT_HELD_Z=0.03` m | 本实验定义（演示层）；放果点经 PyBullet 位置-only IK 预核可达（残差 0.97 mm、6 关节在限位内），**不参与 §1.3 判定、不写入 CSV** |
 
 ---
